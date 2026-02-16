@@ -1,4 +1,4 @@
-# skills-publish
+# skill-publish
 
 GitHub Action to validate, quote, publish, and poll HCS-26 skill releases through Registry Broker.
 
@@ -20,29 +20,29 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@v4
-      - uses: hashgraph-online/skills-publish@v1
+      - uses: hashgraph-online/skill-publish@v1
         with:
-          api-base-url: ${{ secrets.RB_BASE_URL }}
           api-key: ${{ secrets.RB_API_KEY }}
-          account-id: ${{ secrets.RB_ACCOUNT_ID }}
           skill-dir: skills/registry-broker
           annotate: "true"
           github-token: ${{ github.token }}
 ```
 
-## Inputs
+## Required secret
 
-- `api-base-url`: Registry Broker base URL (`.../registry` or `.../registry/api/v1`, optional)
-- `api-key`: Registry Broker API key (required)
-- `account-id`: Hedera account ID (optional; usually not needed for user API keys)
-- `skill-dir`: Folder containing `SKILL.md` and `skill.json` (required)
-- `name`: Optional name override
-- `version`: Optional version override
-- `stamp-repo-commit`: default `true`
-- `poll-timeout-ms`: default `720000`
-- `poll-interval-ms`: default `4000`
-- `annotate`: default `true`
-- `github-token`: token for release/PR annotation
+- `RB_API_KEY`: Registry Broker API key for the publishing account.
+
+## Optional inputs
+
+- `version`: Optional version override.
+- `name`: Optional name override.
+- `stamp-repo-commit`: default `true`.
+- `poll-timeout-ms`: default `720000`.
+- `poll-interval-ms`: default `4000`.
+- `annotate`: default `true`.
+- `github-token`: token for release/PR annotation.
+- `api-base-url`: optional, defaults to `https://hol.org/registry/api/v1`.
+- `account-id`: optional override for edge cases.
 
 ## Outputs
 
