@@ -1,4 +1,4 @@
-name: "skills-publish"
+name: "skill-publish"
 description: "Validate, quote, publish, and poll HCS-26 skill releases via Registry Broker"
 author: "Hashgraph Online"
 inputs:
