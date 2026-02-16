@@ -29,10 +29,12 @@ const parseNumber = (value, fallback) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
+const DEFAULT_API_BASE_URL = 'https://hol.org/registry/api/v1';
+
 const normalizeApiBaseUrl = (value) => {
   const trimmed = String(value ?? '').trim();
   if (!trimmed) {
-    return '';
+    return DEFAULT_API_BASE_URL;
   }
   const withoutTrailingSlash = trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
   if (withoutTrailingSlash.endsWith('/api/v1')) {
@@ -333,11 +335,8 @@ const run = async () => {
   const shouldAnnotate = toBoolean(getEnv('INPUT_ANNOTATE'), true);
   const githubToken = getEnv('INPUT_GITHUB_TOKEN');
 
-  if (!apiBaseUrl) {
-    throw new ActionError('Missing api-base-url input.');
-  }
   if (!apiKey) {
-    throw new ActionError('Missing api-key input.');
+    throw new ActionError('Missing api-key input. Configure RB_API_KEY in repository secrets.');
   }
   if (!skillDirInput) {
     throw new ActionError('Missing skill-dir input.');
