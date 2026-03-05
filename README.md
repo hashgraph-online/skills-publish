@@ -16,11 +16,97 @@ A skill package is `SKILL.md` + `skill.json` (plus optional files). The action v
 [![OpenAPI Spec](https://img.shields.io/badge/OpenAPI-3.1.0-6BA539?style=for-the-badge&logo=openapiinitiative&logoColor=white)](https://hol.org/registry/api/v1/openapi.json)
 [![HOL Registry](https://img.shields.io/badge/HOL-Registry-5599FE?style=for-the-badge)](https://hol.org/registry)
 
-## Quick Start
+## CLI (npx)
+
+The CLI now supports guided, Vercel-style command discovery:
+
+```bash
+npx skill-publish
+npx skill-publish --help
+```
+
+Core flows:
+
+```bash
+npx skill-publish setup --account-id 0.0.12345 --hedera-private-key <key> --hbar 5
+npx skill-publish init ./skills/my-skill
+npx skill-publish doctor ./skills/my-skill
+npx skill-publish validate ./skills/my-skill
+RB_API_KEY=rbk_xxx npx skill-publish quote ./skills/my-skill
+RB_API_KEY=rbk_xxx npx skill-publish publish ./skills/my-skill
+```
+
+Repository automation flows:
+
+```bash
+# Add a publish workflow to an existing SKILL.md repository
+npx skill-publish setup-action . --skill-dir skills/my-skill
+
+# Scaffold a new repository with skill package + GitHub workflow preconfigured
+npx skill-publish scaffold-repo ./weather-skill --name weather-skill
+```
+
+Wallet-first bootstrap:
+
+```bash
+# Create API key via ledger challenge/verify and top up credits in one command
+npx skill-publish setup \
+  --account-id 0.0.12345 \
+  --network hedera:testnet \
+  --hedera-private-key <key> \
+  --hbar 5
+```
+
+What `setup` does:
+- requests a ledger challenge from the broker
+- signs locally with your Hedera private key
+- verifies the challenge and receives an API key
+- stores the key in `~/.skill-publish/credentials.json` (unless `--no-save`)
+- optionally purchases credits with `--hbar`
+
+After setup, `quote` and `publish` automatically reuse the stored key, so you can run:
+
+```bash
+npx skill-publish doctor ./skills/my-skill
+npx skill-publish quote ./skills/my-skill
+npx skill-publish publish ./skills/my-skill
+```
+
+`publish` remains the default command, so legacy flag-only usage still works:
+
+```bash
+RB_API_KEY=rbk_xxx npx skill-publish --skill-dir ./skills/my-skill
+```
+
+Optional overrides:
+
+```bash
+npx skill-publish \
+  publish \
+  --api-key rbk_xxx \
+  --skill-dir ./skills/my-skill \
+  --version 1.2.3 \
+  --annotate false
+```
+
+Dry run behavior:
+
+```bash
+npx skill-publish publish ./skills/my-skill --dry-run
+# no key => validate-only
+# with key => quote-only
+```
+
+## First Publish in Under 5 Minutes
+
+1. Generate an API key: https://hol.org/registry/docs?tab=api-keys
+2. Add credits: https://hol.org/registry/docs?tab=credits
+3. Add `RB_API_KEY` as a GitHub secret.
+4. Commit `SKILL.md` and `skill.json` to your repo.
+5. Add this workflow and publish a release.
 
 ```yaml
 name: Publish Skill
-
 on:
   release:
     types: [published]
@@ -43,18 +129,9 @@ jobs:
           github-token: ${{ github.token }}
 ```
 
-## Prerequisites (API Key + Credits)
-
-To publish from CI, you need:
-
-1. An API key for authenticated broker requests.
-2. Credits to pay for broker usage.
-
-Fast path:
-
-1. Generate an API key: https://hol.org/registry/docs?tab=api-keys
-2. Add credits: https://hol.org/registry/docs?tab=credits
-3. Save the key as a GitHub Actions secret (example name: `RB_API_KEY`)
+Expected success signal:
+- workflow output includes `published=true`
+- output includes `skill-json-hrl` (`hcs://...`) for your immutable release reference
 
 ## Minimal Skill Package
 
@@ -73,6 +150,14 @@ Example `skill.json`:
   "description": "Example skill package"
 }
 ```
+
+## Golden Workflow Templates
+
+Use these copy-ready templates:
+
+- Release-driven publish: `examples/workflows/publish-on-release.yml`
+- Manual publish (`workflow_dispatch`): `examples/workflows/publish-manual.yml`
+- Monorepo path-filtered publish: `examples/workflows/publish-monorepo-paths.yml`
 
 ## Why This Matters (Trustless Skills)
 
@@ -168,27 +253,40 @@ An HRL looks like: `hcs://1/0.0.12345`
 6. Polls `GET /skills/jobs/{jobId}` until completion.
 7. Emits outputs, step summary, and optional GitHub annotations.
 
-Idempotency behavior:
-- if version already exists, action exits cleanly with:
-  - `published=false`
-  - `skip-reason=version-exists`
+## Idempotency and Failure Behavior
 
-## Permissions and Security
+- If `name@version` already exists, the action exits cleanly with `published=false` and `skip-reason=version-exists`.
+- Publish failures return structured output in `result-json` so CI can gate follow-up jobs.
+- Annotation failures do not hide publish status; `annotation-target` reports where comments were attempted.
 
-- Recommended minimum permissions:
-  - `contents: write` for release note updates
-  - `pull-requests: write` and `issues: write` for PR annotation path
+## Trust and Security Defaults
+
+- Recommended minimum permissions are `contents: write`, `pull-requests: write`, and `issues: write`.
 - Store `RB_API_KEY` in repository or organization secrets.
 - If you do not need GitHub annotations, set `annotate: "false"` and omit `github-token`.
-- For strict supply-chain pinning, you can pin to a full commit SHA instead of `@v1`.
+- For strict supply-chain pinning, pin to a full commit SHA instead of `@v1`:
 
-## Troubleshooting
+```yaml
+uses: hashgraph-online/skill-publish@93aee116a8a4b8d90dcde8cfb64628bc255becde
+```
 
-- **`version-exists` skip**: expected for re-runs of an already published version.
-- **quote/publish failures**: inspect `result-json` and step summary first.
-- **timeout**: increase `poll-timeout-ms` for high-load periods.
-- **annotation failure**: publish can still succeed; see `annotation-target` and step logs.
-- **missing files**: ensure `skill-dir` contains both `SKILL.md` and `skill.json`.
+- When annotations are disabled, this tighter permission set is sufficient:
+
+```yaml
+permissions:
+  contents: read
+```
+
+## Troubleshooting Matrix
+
+| Symptom | Likely Cause | Fix |
+| --- | --- | --- |
+| `skip-reason=version-exists` | Same `name@version` already published | Bump `version` in `skill.json` and re-run. |
+| Quote request fails | Missing credits or invalid package metadata | Top up credits, then validate `skill.json` fields and size limits. |
+| Publish job times out | Broker load or long queue | Increase `poll-timeout-ms` (for example, `1200000`) and re-run. |
+| `published=true` but no PR/release annotation | Missing write scopes or missing `github-token` | Add `pull-requests: write`, `issues: write`, `contents: write`, and pass `github-token`. |
+| Missing file validation error | `SKILL.md` or `skill.json` not found under `skill-dir` | Verify folder structure and `skill-dir` path in workflow. |
+| API authentication error | Wrong or revoked API key | Regenerate key at `/registry/docs?tab=api-keys` and update `RB_API_KEY` secret. |
 
 ## How Verification Works (HCS-26)
 

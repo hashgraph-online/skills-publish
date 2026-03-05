@@ -3,164 +3,408 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createColors } from 'picocolors';
+import { loadCredential } from './lib/credential-store.mjs';
+import { runDoctorCommand } from './lib/doctor-command.mjs';
+import { runInitCommand, runSetupCommand } from './lib/local-commands.mjs';
+import { runScaffoldRepoCommand, runSetupActionCommand } from './lib/repo-commands.mjs';
+import { runStartCommand } from './lib/start-command.mjs';
+import { COMMAND_ALIASES, HELP_BY_COMMAND, buildGlobalHelp } from './lib/cli-help.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const packagePath = path.resolve(__dirname, '..', 'package.json');
 const packageJson = JSON.parse(readFileSync(packagePath, 'utf8'));
 
-const HELP = `skill-publish CLI
-
-Usage:
-  npx skill-publish --api-key <key> --skill-dir <dir> [options]
-
-Required:
-  --api-key <key>         Registry Broker API key (or use RB_API_KEY env var)
-  --skill-dir <dir>       Skill package directory containing SKILL.md + skill.json
-
-Options:
-  --api-base-url <url>    Broker API base URL (default: https://hol.org/registry/api/v1)
-  --account-id <id>       Optional Hedera account ID
-  --name <name>           Optional skill name override
-  --version <version>     Optional skill version override
-  --annotate <bool>       Enable GitHub annotation behavior (default: false for CLI)
-  --no-annotate           Disable GitHub annotations
-  --github-token <token>  GitHub token for annotations
-  --stamp-repo-commit <bool>  Stamp repo/commit fields (default: true)
-  --no-stamp-repo-commit  Disable repo/commit stamping
-  --poll-timeout-ms <ms>  Publish poll timeout (default: 720000)
-  --poll-interval-ms <ms> Publish poll interval (default: 4000)
-  --help                  Show this help
-  -v                      Show CLI version
-
-Examples:
-  RB_API_KEY=rbk_xxx npx skill-publish --skill-dir ./skills/my-skill
-  npx skill-publish --api-key rbk_xxx --skill-dir ./skills/my-skill --version 1.2.3
-`;
-
-const FLAG_ENV_MAP = new Map([
-  ['--api-base-url', 'INPUT_API_BASE_URL'],
-  ['--api-key', 'INPUT_API_KEY'],
-  ['--account-id', 'INPUT_ACCOUNT_ID'],
-  ['--skill-dir', 'INPUT_SKILL_DIR'],
-  ['--name', 'INPUT_NAME'],
-  ['--version', 'INPUT_VERSION'],
-  ['--stamp-repo-commit', 'INPUT_STAMP_REPO_COMMIT'],
-  ['--poll-timeout-ms', 'INPUT_POLL_TIMEOUT_MS'],
-  ['--poll-interval-ms', 'INPUT_POLL_INTERVAL_MS'],
-  ['--annotate', 'INPUT_ANNOTATE'],
-  ['--github-token', 'INPUT_GITHUB_TOKEN'],
+const OPTION_ENV_MAP = new Map([
+  ['api-base-url', 'INPUT_API_BASE_URL'],
+  ['api-key', 'INPUT_API_KEY'],
+  ['account-id', 'INPUT_ACCOUNT_ID'],
+  ['skill-dir', 'INPUT_SKILL_DIR'],
+  ['name', 'INPUT_NAME'],
+  ['version', 'INPUT_VERSION'],
+  ['stamp-repo-commit', 'INPUT_STAMP_REPO_COMMIT'],
+  ['poll-timeout-ms', 'INPUT_POLL_TIMEOUT_MS'],
+  ['poll-interval-ms', 'INPUT_POLL_INTERVAL_MS'],
+  ['annotate', 'INPUT_ANNOTATE'],
+  ['github-token', 'INPUT_GITHUB_TOKEN'],
+  ['json', 'INPUT_JSON'],
+  ['mode', 'INPUT_MODE'],
 ]);
 
-const BOOLEAN_FLAGS = new Set(['--annotate', '--stamp-repo-commit']);
+const BOOLEAN_OPTIONS = new Set([
+  'annotate',
+  'stamp-repo-commit',
+  'json',
+  'dry-run',
+  'force',
+  'yes',
+  'save',
+  'no-color',
+  'non-interactive',
+]);
 
-function fail(message) {
-  process.stderr.write(`Error: ${message}\n`);
-  process.stderr.write('Run `npx skill-publish --help` for usage.\n');
+const VALUE_OPTIONS = new Set([
+  'api-base-url',
+  'api-key',
+  'account-id',
+  'skill-dir',
+  'name',
+  'version',
+  'poll-timeout-ms',
+  'poll-interval-ms',
+  'github-token',
+  'description',
+  'network',
+  'hedera-private-key',
+  'signature',
+  'signature-kind',
+  'public-key',
+  'expires-in-minutes',
+  'hbar',
+  'memo',
+  'store-path',
+  'trigger',
+  'workflow-path',
+  'repo-dir',
+  'mode',
+]);
+
+let palette = createColors(true);
+
+function colors() {
+  return {
+    bold: palette.bold,
+    cyan: palette.cyan,
+    green: palette.green,
+    yellow: palette.yellow,
+    red: palette.red,
+  };
+}
+
+function fail(message, command = '') {
+  process.stderr.write(`${palette.red('Error:')} ${message}\n`);
+  if (command && HELP_BY_COMMAND[command]) {
+    process.stderr.write(`Run ${palette.cyan(`npx skill-publish help ${command}`)} for usage.\n`);
+  } else {
+    process.stderr.write(`Run ${palette.cyan('npx skill-publish --help')} for usage.\n`);
+  }
   process.exit(1);
 }
 
-function parseArgs(args) {
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
+function printHelp(command = '') {
+  if (command && HELP_BY_COMMAND[command]) {
+    process.stdout.write(`${HELP_BY_COMMAND[command]}\n`);
+    return;
+  }
+  process.stdout.write(`${buildGlobalHelp(packageJson.version)}\n`);
+}
 
-    if (arg === '--help' || arg === '-h') {
-      process.stdout.write(`${HELP}\n`);
+function isGlobalOnlyArgs(rawArgs) {
+  if (rawArgs.length === 0) {
+    return true;
+  }
+  return rawArgs.every((arg) => arg === '--non-interactive' || arg === '--no-color');
+}
+
+function parseArgs(argv) {
+  const raw = [...argv];
+  if (raw.length === 1 && (raw[0] === '--version' || raw[0] === '-v')) {
+    process.stdout.write(`${String(packageJson.version)}\n`);
+    process.exit(0);
+  }
+  if (raw.length === 0) {
+    return { command: 'start', args: [] };
+  }
+  if (raw[0] === '--help' || raw[0] === '-h') {
+    return { command: 'help', args: [] };
+  }
+  if (raw[0] === 'help') {
+    return { command: 'help', args: raw.slice(1) };
+  }
+  if (raw[0] === 'version') {
+    process.stdout.write(`${String(packageJson.version)}\n`);
+    process.exit(0);
+  }
+  if (raw[0].startsWith('-')) {
+    if (isGlobalOnlyArgs(raw)) {
+      return { command: 'start', args: raw };
+    }
+    return { command: 'publish', args: raw };
+  }
+  const normalized = COMMAND_ALIASES.get(raw[0]);
+  if (normalized) {
+    return { command: normalized, args: raw.slice(1) };
+  }
+  return { command: 'publish', args: raw };
+}
+
+function parseOptions(args, command) {
+  const options = {};
+  const positionals = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    if (token === '--help' || token === '-h') {
+      printHelp(command);
       process.exit(0);
     }
-
-    if (arg === '-v') {
+    if (token === '--version' && (index === args.length - 1 || args[index + 1].startsWith('-'))) {
       process.stdout.write(`${String(packageJson.version)}\n`);
       process.exit(0);
     }
-
-    if (arg === '--version') {
-      const next = args[index + 1];
-      if (!next || next.startsWith('--')) {
-        process.stdout.write(`${String(packageJson.version)}\n`);
-        process.exit(0);
+    if (token.startsWith('--no-')) {
+      const key = token.slice(5);
+      if (!BOOLEAN_OPTIONS.has(key)) {
+        fail(`Unknown flag: ${token}`, command);
       }
+      options[key] = false;
+      continue;
     }
-
-    if (arg.startsWith('--no-')) {
-      const positive = `--${arg.slice(5)}`;
-      if (!BOOLEAN_FLAGS.has(positive)) {
-        fail(`Unknown flag: ${arg}`);
-      }
-      process.env[FLAG_ENV_MAP.get(positive)] = 'false';
+    if (!token.startsWith('--')) {
+      positionals.push(token);
       continue;
     }
 
-    let key = arg;
-    let value = '';
-    if (arg.startsWith('--') && arg.includes('=')) {
-      const splitIndex = arg.indexOf('=');
-      key = arg.slice(0, splitIndex);
-      value = arg.slice(splitIndex + 1);
+    let key;
+    let value;
+    if (token.includes('=')) {
+      const separator = token.indexOf('=');
+      key = token.slice(2, separator);
+      value = token.slice(separator + 1);
+    } else {
+      key = token.slice(2);
+      value = null;
     }
 
-    if (!FLAG_ENV_MAP.has(key)) {
-      fail(`Unknown flag: ${key}`);
+    if (!VALUE_OPTIONS.has(key) && !BOOLEAN_OPTIONS.has(key)) {
+      fail(`Unknown flag: --${key}`, command);
     }
 
-    if (arg.includes('=')) {
-      process.env[FLAG_ENV_MAP.get(key)] = value;
+    if (value !== null) {
+      options[key] = value;
       continue;
     }
 
     const next = args[index + 1];
-    if (next && !next.startsWith('--')) {
-      process.env[FLAG_ENV_MAP.get(key)] = next;
+    if (next && !next.startsWith('--') && VALUE_OPTIONS.has(key)) {
+      options[key] = next;
       index += 1;
       continue;
     }
 
-    if (BOOLEAN_FLAGS.has(key)) {
-      process.env[FLAG_ENV_MAP.get(key)] = 'true';
+    if (BOOLEAN_OPTIONS.has(key)) {
+      options[key] = true;
       continue;
     }
 
-    fail(`Missing value for ${key}`);
+    fail(`Missing value for --${key}`, command);
+  }
+
+  return { options, positionals };
+}
+
+function applyCommonDefaults(options) {
+  if (!options['api-base-url']) {
+    options['api-base-url'] = 'https://hol.org/registry/api/v1';
+  }
+  if (!options['skill-dir']) {
+    options['skill-dir'] = '.';
+  }
+  if (!options['api-key'] && process.env.RB_API_KEY) {
+    options['api-key'] = process.env.RB_API_KEY;
+    return;
+  }
+  if (!options['api-key']) {
+    const stored = loadCredential({
+      baseUrl: options['api-base-url'],
+      accountId: options['account-id'] ?? '',
+      storePath: options['store-path'] ?? '',
+    });
+    if (stored?.apiKey) {
+      options['api-key'] = stored.apiKey;
+      options['account-id'] = options['account-id'] || stored.accountId;
+      options.network = options.network || stored.network;
+    }
   }
 }
 
-function applyDefaults() {
-  if (!process.env.INPUT_API_KEY && process.env.RB_API_KEY) {
-    process.env.INPUT_API_KEY = process.env.RB_API_KEY;
+function applyPublishDefaults(options) {
+  applyCommonDefaults(options);
+  if (typeof options.annotate === 'undefined') {
+    options.annotate = false;
   }
-  if (!process.env.INPUT_SKILL_DIR) {
-    process.env.INPUT_SKILL_DIR = '.';
+  if (typeof options['stamp-repo-commit'] === 'undefined') {
+    options['stamp-repo-commit'] = true;
   }
-  if (!process.env.INPUT_ANNOTATE) {
-    process.env.INPUT_ANNOTATE = 'false';
+  if (!options['poll-timeout-ms']) {
+    options['poll-timeout-ms'] = '720000';
   }
-  if (!process.env.INPUT_STAMP_REPO_COMMIT) {
-    process.env.INPUT_STAMP_REPO_COMMIT = 'true';
+  if (!options['poll-interval-ms']) {
+    options['poll-interval-ms'] = '4000';
   }
-  if (!process.env.INPUT_POLL_TIMEOUT_MS) {
-    process.env.INPUT_POLL_TIMEOUT_MS = '720000';
+}
+
+function setEnvFromOptions(options) {
+  for (const [key, value] of Object.entries(options)) {
+    if (typeof value === 'undefined') {
+      continue;
+    }
+    const envKey = OPTION_ENV_MAP.get(key);
+    if (!envKey) {
+      continue;
+    }
+    process.env[envKey] = String(value);
   }
-  if (!process.env.INPUT_POLL_INTERVAL_MS) {
-    process.env.INPUT_POLL_INTERVAL_MS = '4000';
+}
+
+async function runEntrypoint(mode, options) {
+  const payload = { ...options, mode };
+  setEnvFromOptions(payload);
+  const entrypointUrl = pathToFileURL(path.resolve(__dirname, '..', 'entrypoint.mjs')).href;
+  await import(entrypointUrl);
+}
+
+function adoptPositionalSkillDir(options, positionals) {
+  if (positionals.length > 0 && !options['skill-dir']) {
+    options['skill-dir'] = positionals[0];
   }
+}
+
+async function runPublishCommand(options, positionals) {
+  adoptPositionalSkillDir(options, positionals);
+  applyPublishDefaults(options);
+  const shouldPrintInformational = !Boolean(options.json);
+
+  if (options['dry-run']) {
+    if (options['api-key']) {
+      if (shouldPrintInformational) {
+        process.stdout.write(`${palette.yellow('Dry run')}: running quote instead of publish.\n`);
+      }
+      await runEntrypoint('quote', options);
+      return;
+    }
+    if (shouldPrintInformational) {
+      process.stdout.write(
+        `${palette.yellow('Dry run')}: running local validation only (no API key provided).\n`,
+      );
+    }
+    await runEntrypoint('validate', options);
+    return;
+  }
+
+  if (!options['api-key']) {
+    fail(
+      'Missing API key. Pass --api-key, set RB_API_KEY, or run `npx skill-publish setup --account-id <id> --hedera-private-key <key>`.',
+      'publish',
+    );
+  }
+  await runEntrypoint('publish', options);
+}
+
+async function runValidateCommand(options, positionals) {
+  adoptPositionalSkillDir(options, positionals);
+  applyCommonDefaults(options);
+  await runEntrypoint('validate', options);
+}
+
+async function runQuoteCommand(options, positionals) {
+  adoptPositionalSkillDir(options, positionals);
+  applyCommonDefaults(options);
+  if (!options['api-key']) {
+    fail(
+      'Missing API key. Pass --api-key, set RB_API_KEY, or run `npx skill-publish setup --account-id <id> --hedera-private-key <key>`.',
+      'quote',
+    );
+  }
+  await runEntrypoint('quote', options);
+}
+
+async function dispatchCommand(command, options, positionals) {
+  if (command === 'publish') {
+    await runPublishCommand(options, positionals);
+    return;
+  }
+  if (command === 'validate') {
+    await runValidateCommand(options, positionals);
+    return;
+  }
+  if (command === 'quote') {
+    await runQuoteCommand(options, positionals);
+    return;
+  }
+  if (command === 'init') {
+    await runInitCommand(options, positionals, {
+      fail,
+      colors: colors(),
+    });
+    return;
+  }
+  if (command === 'setup') {
+    await runSetupCommand(options, {
+      colors: colors(),
+    });
+    return;
+  }
+  if (command === 'setup-action') {
+    await runSetupActionCommand(options, positionals, {
+      fail,
+      colors: colors(),
+    });
+    return;
+  }
+  if (command === 'scaffold-repo') {
+    await runScaffoldRepoCommand(options, positionals, {
+      fail,
+      colors: colors(),
+    });
+    return;
+  }
+  if (command === 'doctor') {
+    adoptPositionalSkillDir(options, positionals);
+    applyCommonDefaults(options);
+    await runDoctorCommand(options, positionals, {
+      colors: colors(),
+    });
+    return;
+  }
+  if (command === 'start') {
+    const nextAction = await runStartCommand(options, {
+      printHelp,
+      colors: colors(),
+    });
+    if (!nextAction) {
+      return;
+    }
+    await dispatchCommand(nextAction.command, nextAction.options ?? {}, nextAction.positionals ?? []);
+    return;
+  }
+
+  fail(`Unknown command: ${command}`);
 }
 
 async function run() {
-  parseArgs(process.argv.slice(2));
-  applyDefaults();
-
-  if (!process.env.INPUT_API_KEY) {
-    fail('Missing API key. Pass --api-key or set RB_API_KEY.');
+  const parsed = parseArgs(process.argv.slice(2));
+  const { command, args } = parsed;
+  if (command === 'help') {
+    const topic = COMMAND_ALIASES.get(args[0] ?? '') ?? (args[0] || '');
+    printHelp(topic);
+    return;
   }
 
-  const entrypointUrl = pathToFileURL(
-    path.resolve(__dirname, '..', 'entrypoint.mjs'),
-  ).href;
-  await import(entrypointUrl);
+  const parsedOptions = parseOptions(args, command);
+  const options = parsedOptions.options;
+  const positionals = parsedOptions.positionals;
+
+  if (options['no-color']) {
+    palette = createColors(false);
+  }
+
+  await dispatchCommand(command, options, positionals);
 }
 
 run().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`Error: ${message}\n`);
+  process.stderr.write(`${palette.red('Error:')} ${message}\n`);
   process.exit(1);
 });

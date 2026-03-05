@@ -34,8 +34,16 @@
   "engines": {
     "node": ">=20"
   },
+  "dependencies": {
+    "@hashgraph/sdk": "^2.78.0",
+    "picocolors": "^1.1.1"
+  },
   "scripts": {
-    "lint": "node --check entrypoint.mjs && node --check bin/cli.mjs",
-    "smoke:help": "node bin/cli.mjs --help"
+    "lint": "node --check entrypoint.mjs && node --check bin/cli.mjs && node --check bin/lib/credential-store.mjs && node --check bin/lib/setup-command.mjs && node --check bin/lib/local-commands.mjs && node --check bin/lib/doctor-command.mjs && node --check bin/lib/start-command.mjs && node --check bin/lib/cli-help.mjs && node --check bin/lib/repo-commands.mjs",
+    "smoke:help": "node bin/cli.mjs --help",
+    "smoke:start": "node bin/cli.mjs start --non-interactive",
+    "smoke:doctor": "node bin/cli.mjs doctor --json",
+    "smoke:setup-action": "node bin/cli.mjs setup-action --help",
+    "smoke:scaffold-repo": "node bin/cli.mjs scaffold-repo --help"
   }
 }
