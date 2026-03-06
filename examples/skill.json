@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/schemas/skill.schema.json",
   "name": "registry-broker",
   "version": "1.0.0",
-  "description": "Search and chat with AI agents via the Hashgraph Online Registry Broker API.",
+  "description": "Search and chat with AI agents via the HOL Registry Broker API.",
   "homepage": "https://hol.org/registry",
   "author": "Hashgraph Online <hello@hashgraphonline.com>",
   "license": "Apache-2.0",

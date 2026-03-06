@@ -1,6 +1,6 @@
 # skill-publish
 
-`skill-publish` is a GitHub Action that publishes **trustless, immutable, on-chain** skill releases and returns canonical references you can pin, verify, and re-fetch later.
+`skill-publish` is the official CLI and GitHub Action for publishing **trustless, immutable, on-chain** skill releases through the HOL Registry Broker.
 
 Instead of sharing mutable URLs or copy/paste blobs, each `name@version` release is recorded on Hedera (HCS) and exposed via `hcs://...` references. That immutability is the value: the published artifact is tamper-evident, reproducible, and audit-friendly.
 
@@ -12,9 +12,76 @@ Immutability gives you:
 
 A skill package is `SKILL.md` + `skill.json` (plus optional files). The action validates, quotes, publishes, waits for completion, and emits outputs.
 
+By default, `skill-publish` excludes hidden files, env files, lockfiles, build output, local databases, and key/certificate material from package discovery before quote or publish.
+
+[![npm](https://img.shields.io/npm/v/skill-publish?style=for-the-badge&logo=npm)](https://www.npmjs.com/package/skill-publish)
 [![GitHub Marketplace](https://img.shields.io/badge/GitHub_Marketplace-skill--publish-2EA44F?style=for-the-badge&logo=github)](https://github.com/marketplace/actions/skill-publish)
 [![OpenAPI Spec](https://img.shields.io/badge/OpenAPI-3.1.0-6BA539?style=for-the-badge&logo=openapiinitiative&logoColor=white)](https://hol.org/registry/api/v1/openapi.json)
 [![HOL Registry](https://img.shields.io/badge/HOL-Registry-5599FE?style=for-the-badge)](https://hol.org/registry)
+
+## Quick Start
+
+Choose the path that matches how you work:
+
+### GitHub Action (recommended for releases)
+
+Add the official action to your repo and publish on GitHub releases:
+
+```yaml
+name: Publish Skill
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish skill package
+        uses: hashgraph-online/skill-publish@v1
+        with:
+          api-key: ${{ secrets.RB_API_KEY }}
+          skill-dir: skills/my-skill
+          annotate: "true"
+          github-token: ${{ github.token }}
+```
+
+### CLI (recommended for local setup and first publish)
+
+```bash
+npx skill-publish
+npx skill-publish setup --account-id 0.0.12345 --hedera-private-key <key>
+npx skill-publish scaffold-repo ./weather-skill --name weather-skill
+npx skill-publish publish ./weather-skill
+```
+
+After publish, use the returned canonical skill page, badge snippet, and resolver URLs to share a version-pinned release.
+
+## 60-Second Path
+
+If you already have a repo and wallet, this is the shortest path to a live page:
+
+```bash
+npx skill-publish setup --account-id 0.0.12345 --hedera-private-key <key>
+npx skill-publish setup-action . --skill-dir .
+git tag v1.0.0 && git push --tags
+```
+
+That gives you a live Registry page, pinned install URLs, and share-ready badge snippets from the action outputs.
+
+## Jump To
+
+- [CLI (npx)](#cli-npx)
+- [First Publish in Under 5 Minutes](#first-publish-in-under-5-minutes)
+- [Golden Workflow Templates](#golden-workflow-templates)
+- [Trust and Security Defaults](#trust-and-security-defaults)
+- [Troubleshooting Matrix](#troubleshooting-matrix)
+- [Canonical References](#canonical-references)
 
 ## CLI (npx)
 
@@ -44,6 +111,40 @@ npx skill-publish setup-action . --skill-dir skills/my-skill
 
 # Scaffold a new repository with skill package + GitHub workflow preconfigured
 npx skill-publish scaffold-repo ./weather-skill --name weather-skill
+```
+
+Distribution helper flows:
+
+```bash
+npx skill-publish badge ./skills/my-skill
+npx skill-publish install-url ./skills/my-skill --format summary
+npx skill-publish release-notes ./skills/my-skill
+npx skill-publish readme-snippet ./skills/my-skill
+npx skill-publish attested-kit ./skills/my-skill --format json
+npx skill-publish apply-kit ./skills/my-skill --repo-dir . --docs-path docs/my-skill.md
+npx skill-publish submit-indexnow ./skills/my-skill
+```
+
+## Attested Distribution Kit
+
+`skill-publish` can now generate an attested distribution kit for each resolved `name@version`.
+
+The kit includes:
+
+- canonical HOL page URL
+- machine-readable `entity.json`
+- badge markdown and HTML
+- release notes, README, and docs snippets
+- package metadata block
+- `codemeta.json`
+- IndexNow submission targets
+
+Typical flow:
+
+```bash
+npx skill-publish attested-kit ./skills/my-skill --format json
+npx skill-publish apply-kit ./skills/my-skill --repo-dir . --docs-path docs/my-skill.md
+npx skill-publish submit-indexnow ./skills/my-skill
 ```
 
 Wallet-first bootstrap:
@@ -99,6 +200,8 @@ npx skill-publish publish ./skills/my-skill --dry-run
 
 ## First Publish in Under 5 Minutes
 
+Use this path when you want the full CI/CD setup with GitHub releases and annotations.
+
 1. Generate an API key: https://hol.org/registry/docs?tab=api-keys
 2. Add credits: https://hol.org/registry/docs?tab=credits
 3. Add `RB_API_KEY` as a GitHub secret.
@@ -151,6 +254,17 @@ Example `skill.json`:
 }
 ```
 
+## Default Package Exclusions
+
+These paths are never included in publish payloads:
+
+- hidden paths such as `.env`, `.env.local`, `.gitignore`, `.github/`, `.vscode/`
+- lockfiles such as `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lockb`
+- build and dependency output such as `node_modules/`, `dist/`, `build/`, `.next/`, `coverage/`
+- local state and sensitive material such as `*.db`, `*.sqlite`, `*.pem`, `*.key`, `*.p12`, `*.pfx`
+
+If you need to ship a supporting artifact, keep it in a normal visible path inside the skill directory.
+
 ## Golden Workflow Templates
 
 Use these copy-ready templates:
@@ -196,6 +310,7 @@ This action exists to make that publish step deterministic and automated in CI.
 | `poll-timeout-ms` | No | `720000` | Max time to wait for publish job completion. |
 | `poll-interval-ms` | No | `4000` | Interval between publish job status polls. |
 | `annotate` | No | `true` | Post publish result to release notes or merged PR comments. |
+| `submit-indexnow` | No | `false` | Submit canonical HOL skill URLs to IndexNow after publish or skip-existing. |
 | `github-token` | No | - | Token used only when `annotate=true`. |
 
 ## Outputs
@@ -213,13 +328,37 @@ This action exists to make that publish step deterministic and automated in CI.
 | `skill-json-hrl` | Canonical `hcs://...` reference for `skill.json`. |
 | `credits` | Credits consumed. |
 | `estimated-cost-hbar` | Estimated HBAR cost from quote. |
+| `skill-page-url` | Canonical skill detail page URL for the resolved `name@version`. |
+| `entity-url` | Machine-readable `entity.json` URL for the canonical skill page. |
+| `docs-url` | Canonical HOL docs URL for the registry. |
+| `openapi-url` | Canonical OpenAPI URL for the registry API. |
+| `install-url-pinned-skill-md` | Pinned `SKILL.md` resolver URL. |
+| `install-url-latest-skill-md` | Latest `SKILL.md` resolver URL. |
+| `install-url-pinned-manifest` | Pinned `manifest` resolver URL. |
+| `install-url-latest-manifest` | Latest `manifest` resolver URL. |
+| `install-metadata-pinned-url` | Pinned install metadata URL. |
+| `install-metadata-latest-url` | Latest install metadata URL. |
+| `badge-markdown` | Markdown badge snippet for the resolved version. |
+| `badge-html` | HTML badge snippet for the resolved version. |
+| `markdown-link` | Markdown link snippet for the canonical skill page. |
+| `html-link` | HTML link snippet for the canonical skill page. |
+| `readme-snippet` | README snippet with canonical install links. |
+| `docs-snippet` | Docs snippet with canonical HOL links. |
+| `citation-snippet` | Citation snippet pointing to canonical HOL metadata. |
+| `release-notes` | Release notes snippet with install links and badge markdown. |
+| `package-metadata-json` | JSON block for package metadata pointing at HOL canonical URLs. |
+| `codemeta-json` | CodeMeta document for the resolved skill version. |
+| `attested-kit-json` | Full attested distribution kit payload. |
+| `next-actions` | Post-publish checklist with the best distribution next steps. |
 | `annotation-target` | Annotation destination (`release:<id>`, `pr:<id>`, `none`, `failed`). |
+| `indexnow-result` | IndexNow submission result when enabled. |
 | `result-json` | Full result payload as JSON string. |
 
 Useful references after publish:
 - `directory-topic-id`: where the skill record lives
 - `package-topic-id`: package/version topic reference
 - `skill-json-hrl`: canonical reference you can paste into docs, release notes, or tooling
+- `skill-page-url`, install URL outputs, and snippets: ready-to-share distribution kit output for READMEs and release notes
 
 An HRL looks like: `hcs://1/0.0.12345`
 
@@ -300,6 +439,7 @@ Full standard:
 
 ## Canonical References
 
+- npm package: https://www.npmjs.com/package/skill-publish
 - Marketplace listing: https://github.com/marketplace/actions/skill-publish
 - Registry landing page: https://hol.org/registry
 - Skill index: https://hol.org/registry/skills

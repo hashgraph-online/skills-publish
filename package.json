@@ -1,8 +1,16 @@
 {
   "name": "skill-publish",
   "version": "1.0.0",
-  "description": "Publish trustless, immutable, on-chain skill releases via the Hashgraph Online Registry Broker.",
+  "description": "Publish trustless, immutable, on-chain skill releases via the HOL Registry Broker.",
   "type": "module",
+  "homepage": "https://hol.org/registry/skills/publish",
+  "bugs": {
+    "url": "https://github.com/hashgraph-online/skill-publish/issues"
+  },
+  "funding": {
+    "type": "individual",
+    "url": "https://github.com/sponsors/hashgraph-online"
+  },
   "bin": {
     "skill-publish": "bin/cli.mjs"
   },
@@ -15,15 +23,26 @@
     "apis.json",
     "llms.txt",
     "README.md",
-    "CITATION.cff"
+    "CITATION.cff",
+    "codemeta.json"
   ],
   "keywords": [
+    "hashgraph-online",
     "hcs-26",
     "skill-registry",
     "registry-broker",
     "hedera",
     "cli",
-    "github-action"
+    "github-action",
+    "github-actions",
+    "ci-cd",
+    "publish-skill",
+    "agent-skill",
+    "ai-skills",
+    "skill-publish",
+    "immutable-releases",
+    "on-chain-publishing",
+    "skill-release-automation"
   ],
   "repository": {
     "type": "git",
@@ -39,11 +58,25 @@
     "picocolors": "^1.1.1"
   },
   "scripts": {
-    "lint": "node --check entrypoint.mjs && node --check bin/cli.mjs && node --check bin/lib/credential-store.mjs && node --check bin/lib/setup-command.mjs && node --check bin/lib/local-commands.mjs && node --check bin/lib/doctor-command.mjs && node --check bin/lib/start-command.mjs && node --check bin/lib/cli-help.mjs && node --check bin/lib/repo-commands.mjs",
+    "lint": "node --check entrypoint.mjs && node --check bin/cli.mjs && node --check bin/lib/broker-api.mjs && node --check bin/lib/credential-store.mjs && node --check bin/lib/setup-command.mjs && node --check bin/lib/account-commands.mjs && node --check bin/lib/local-commands.mjs && node --check bin/lib/doctor-command.mjs && node --check bin/lib/start-command.mjs && node --check bin/lib/cli-help.mjs && node --check bin/lib/repo-commands.mjs && node --check bin/lib/package-files.mjs && node --check bin/lib/skill-presets.mjs && node --check bin/lib/distribution-kit.mjs && node --check bin/lib/distribution-commands.mjs && node --check bin/lib/codemeta.mjs && node --check bin/lib/indexnow.mjs && node --check bin/lib/apply-distribution-kit.mjs",
     "smoke:help": "node bin/cli.mjs --help",
     "smoke:start": "node bin/cli.mjs start --non-interactive",
     "smoke:doctor": "node bin/cli.mjs doctor --json",
+    "smoke:whoami": "node bin/cli.mjs whoami --help",
+    "smoke:credits": "node bin/cli.mjs credits --help",
+    "smoke:fund": "node bin/cli.mjs fund --help",
     "smoke:setup-action": "node bin/cli.mjs setup-action --help",
-    "smoke:scaffold-repo": "node bin/cli.mjs scaffold-repo --help"
+    "smoke:scaffold-repo": "node bin/cli.mjs scaffold-repo --help",
+    "smoke:badge": "node bin/cli.mjs badge --help",
+    "smoke:install-url": "node bin/cli.mjs install-url --help",
+    "smoke:attested-kit": "node bin/cli.mjs attested-kit --help",
+    "smoke:apply-kit": "node bin/cli.mjs apply-kit --help",
+    "smoke:submit-indexnow": "node bin/cli.mjs submit-indexnow --help"
+  },
+  "pnpm": {
+    "overrides": {
+      "bn.js": "5.2.3",
+      "elliptic": "npm:@soatok/elliptic-to-noble@9999.0.0"
+    }
   }
 }
