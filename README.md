@@ -56,7 +56,7 @@ jobs:
 ```bash
 npx skill-publish
 npx skill-publish setup --account-id 0.0.12345 --hedera-private-key <key>
-npx skill-publish scaffold-repo ./weather-skill --name weather-skill
+npx skill-publish create ./weather-skill --name weather-skill --preset api
 npx skill-publish publish ./weather-skill
 ```
 
@@ -96,8 +96,10 @@ Core flows:
 
 ```bash
 npx skill-publish setup --account-id 0.0.12345 --hedera-private-key <key> --hbar 5
+npx skill-publish create ./weather-skill --name weather-skill --preset api
 npx skill-publish init ./skills/my-skill
 npx skill-publish doctor ./skills/my-skill
+npx skill-publish doctor ./skills/my-skill --fix --local-only
 npx skill-publish validate ./skills/my-skill
 RB_API_KEY=rbk_xxx npx skill-publish quote ./skills/my-skill
 RB_API_KEY=rbk_xxx npx skill-publish publish ./skills/my-skill
@@ -111,6 +113,9 @@ npx skill-publish setup-action . --skill-dir skills/my-skill
 
 # Scaffold a new repository with skill package + GitHub workflow preconfigured
 npx skill-publish scaffold-repo ./weather-skill --name weather-skill
+
+# Golden path: scaffold repo, repair package metadata, and prepare for publish
+npx skill-publish create ./weather-skill --name weather-skill --preset api
 ```
 
 Distribution helper flows:

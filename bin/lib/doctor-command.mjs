@@ -1,7 +1,7 @@
-import { constants } from 'node:fs';
-import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { requestJsonWithTimeout } from './broker-api.mjs';
 import { loadCredential, resolveCredentialStorePath } from './credential-store.mjs';
+import { repairSkillPackage, readSkillPackageState } from './skill-package.mjs';
 
 function normalizeBaseUrl(value) {
   const trimmed = String(value ?? '').trim();
@@ -23,34 +23,6 @@ function parseNodeVersion(rawVersion) {
   return Number.isFinite(major) ? major : 0;
 }
 
-async function fileExists(filePath) {
-  try {
-    await access(filePath, constants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function requestJsonWithTimeout(url, headers = {}, timeoutMs = 8000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers,
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`HTTP ${response.status}${text ? `: ${text}` : ''}`);
-    }
-    return response.json();
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 function statusColor(status, colors) {
   if (status === 'pass') {
     return colors.green('[ok]');
@@ -70,54 +42,75 @@ function pushCheck(checks, status, label, detail, blocking = false) {
   });
 }
 
-async function checkSkillPackage(skillDir) {
-  const skillMdPath = path.join(skillDir, 'SKILL.md');
-  const skillJsonPath = path.join(skillDir, 'skill.json');
-  const hasSkillMd = await fileExists(skillMdPath);
-  const hasSkillJson = await fileExists(skillJsonPath);
-  if (!hasSkillMd || !hasSkillJson) {
-    return {
-      status: 'warn',
-      detail: `${path.relative(process.cwd(), skillDir) || '.'} missing ${!hasSkillMd ? 'SKILL.md' : ''}${!hasSkillMd && !hasSkillJson ? ' and ' : ''}${!hasSkillJson ? 'skill.json' : ''}`,
-      meta: null,
-    };
-  }
-
-  try {
-    const raw = await readFile(skillJsonPath, 'utf8');
-    const parsed = JSON.parse(raw);
-    const name = typeof parsed?.name === 'string' ? parsed.name.trim() : '';
-    const version = typeof parsed?.version === 'string' ? parsed.version.trim() : '';
-    if (!name || !version) {
-      return {
-        status: 'warn',
-        detail: `${path.relative(process.cwd(), skillDir) || '.'} has skill.json but missing name/version fields`,
-        meta: null,
-      };
+function formatSkillPackageDetail(skillDir, state) {
+  const label = path.relative(process.cwd(), skillDir) || '.';
+  if (!state.hasSkillMd || !state.hasSkillJson) {
+    const missing = [];
+    if (!state.hasSkillMd) {
+      missing.push('SKILL.md');
+    }
+    if (!state.hasSkillJson) {
+      missing.push('skill.json');
     }
     return {
-      status: 'pass',
-      detail: `${path.relative(process.cwd(), skillDir) || '.'} (${name}@${version})`,
-      meta: {
-        name,
-        version,
-      },
-    };
-  } catch (error) {
-    return {
       status: 'warn',
-      detail: `${path.relative(process.cwd(), skillDir) || '.'} has unreadable skill.json (${error instanceof Error ? error.message : String(error)})`,
+      detail: `${label} missing ${missing.join(' and ')}`,
       meta: null,
     };
   }
+  if (state.invalidSkillJson) {
+    return {
+      status: 'warn',
+      detail: `${label} has unreadable skill.json (${state.skillJsonError})`,
+      meta: null,
+    };
+  }
+  if (state.missingFields.length > 0) {
+    return {
+      status: 'warn',
+      detail: `${label} missing metadata: ${state.missingFields.join(', ')}`,
+      meta: null,
+    };
+  }
+  return {
+    status: 'pass',
+    detail: `${label} (${state.parsedSkillJson.name}@${state.parsedSkillJson.version})`,
+    meta: {
+      name: state.parsedSkillJson.name,
+      version: state.parsedSkillJson.version,
+    },
+  };
+}
+
+async function checkSkillPackage(skillDir) {
+  const state = await readSkillPackageState(skillDir);
+  return {
+    ...formatSkillPackageDetail(skillDir, state),
+    state,
+  };
+}
+
+async function checkBrokerReachability(baseUrl) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await requestJsonWithTimeout(`${baseUrl}/skills/config`, {}, 12000);
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
 }
 
 export async function runDoctorCommand(options, positionals, context) {
   const checks = [];
+  const fixes = [];
   const baseUrl = normalizeBaseUrl(options['api-base-url']);
   const skillDirInput = positionals[0] ?? options['skill-dir'] ?? '.';
   const skillDir = path.resolve(process.cwd(), skillDirInput);
   const nodeMajor = parseNodeVersion(process.versions.node);
+  const localOnly = Boolean(options['local-only']);
 
   if (nodeMajor >= 20) {
     pushCheck(checks, 'pass', 'Node.js', process.versions.node);
@@ -125,17 +118,21 @@ export async function runDoctorCommand(options, positionals, context) {
     pushCheck(checks, 'fail', 'Node.js', `${process.versions.node} (requires >= 20)`, true);
   }
 
-  try {
-    await requestJsonWithTimeout(`${baseUrl}/skills/config`);
-    pushCheck(checks, 'pass', 'Registry Broker', `${baseUrl} reachable`);
-  } catch (error) {
-    pushCheck(
-      checks,
-      'fail',
-      'Registry Broker',
-      `${baseUrl} unreachable (${error instanceof Error ? error.message : String(error)})`,
-      true,
-    );
+  if (localOnly) {
+    pushCheck(checks, 'pass', 'Registry Broker', 'skipped (--local-only)');
+  } else {
+    try {
+      await checkBrokerReachability(baseUrl);
+      pushCheck(checks, 'pass', 'Registry Broker', `${baseUrl} reachable`);
+    } catch (error) {
+      pushCheck(
+        checks,
+        'fail',
+        'Registry Broker',
+        `${baseUrl} unreachable (${error instanceof Error ? error.message : String(error)})`,
+        true,
+      );
+    }
   }
 
   const storedCredential = options['api-key']
@@ -148,7 +145,9 @@ export async function runDoctorCommand(options, positionals, context) {
   const apiKey = String(options['api-key'] ?? storedCredential?.apiKey ?? '').trim();
   const accountId = String(options['account-id'] ?? storedCredential?.accountId ?? '').trim();
 
-  if (apiKey) {
+  if (localOnly) {
+    pushCheck(checks, 'pass', 'API key', 'skipped (--local-only)');
+  } else if (apiKey) {
     const source = options['api-key'] ? 'flag/env' : `store (${resolveCredentialStorePath(options['store-path'] ?? '')})`;
     pushCheck(checks, 'pass', 'API key', `available via ${source}`);
   } else {
@@ -160,7 +159,9 @@ export async function runDoctorCommand(options, positionals, context) {
     );
   }
 
-  if (apiKey && accountId) {
+  if (localOnly) {
+    pushCheck(checks, 'pass', 'Credits balance', 'skipped (--local-only)');
+  } else if (apiKey && accountId) {
     try {
       const balanceQuery = new URLSearchParams({ accountId });
       const response = await requestJsonWithTimeout(`${baseUrl}/credits/balance?${balanceQuery.toString()}`, {
@@ -193,7 +194,18 @@ export async function runDoctorCommand(options, positionals, context) {
     pushCheck(checks, 'warn', 'Credits balance', 'skipped (no API key)');
   }
 
-  const packageCheck = await checkSkillPackage(skillDir);
+  let packageCheck = await checkSkillPackage(skillDir);
+  if (options.fix && packageCheck.status !== 'pass') {
+    const repaired = await repairSkillPackage({
+      skillDir,
+      name: options.name,
+      version: options.version,
+      description: options.description,
+      preset: options.preset,
+    });
+    fixes.push(...repaired.fixes);
+    packageCheck = await checkSkillPackage(skillDir);
+  }
   pushCheck(checks, packageCheck.status, 'Skill package', packageCheck.detail);
 
   const blockingFailures = checks.filter((check) => check.status === 'fail' && check.blocking).length;
@@ -202,8 +214,10 @@ export async function runDoctorCommand(options, positionals, context) {
   const result = {
     mode: 'doctor',
     ok: blockingFailures === 0,
+    localOnly,
     blockingFailures,
     warnings,
+    fixes,
     checks,
   };
 
@@ -219,6 +233,9 @@ export async function runDoctorCommand(options, positionals, context) {
   checks.forEach((check) => {
     process.stdout.write(`${statusColor(check.status, context.colors)} ${check.label}: ${check.detail}\n`);
   });
+  if (fixes.length > 0) {
+    process.stdout.write(`${context.colors.cyan('Applied fixes')}: ${fixes.join(', ')}\n`);
+  }
   if (blockingFailures > 0) {
     process.stdout.write(`${context.colors.red(`Doctor found ${blockingFailures} blocking issue(s).`)}\n`);
     throw new Error(`Doctor found ${blockingFailures} blocking issue(s).`);

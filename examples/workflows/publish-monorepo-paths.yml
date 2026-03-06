@@ -1,0 +1,23 @@
+name: Publish Skill (Monorepo)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "skills/my-skill/**"
+      - ".github/workflows/publish-skill.yml"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish skill package
+        uses: hashgraph-online/skill-publish@v1
+        with:
+          api-key: ${{ secrets.RB_API_KEY }}
+          skill-dir: skills/my-skill
+          annotate: "false"

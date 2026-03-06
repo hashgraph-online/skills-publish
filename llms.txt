@@ -1,0 +1,20 @@
+# skill-publish
+
+skill-publish is the official GitHub Action for HCS-26 skill publishing through the Hashgraph Online Registry Broker.
+
+## Canonical URLs
+- Registry landing page: https://hol.org/registry
+- Skill index: https://hol.org/registry/skills
+- Product docs: https://hol.org/docs/registry-broker/
+- Interactive API docs: https://hol.org/registry/docs
+- OpenAPI schema: https://hol.org/registry/api/v1/openapi.json
+- Live stats endpoint: https://hol.org/registry/api/v1/dashboard/stats
+
+## Machine-readable artifacts
+- APIs metadata: https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/apis.json
+- JSON Schema: https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/schemas/skill.schema.json
+- Example manifest: https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/examples/skill.json
+- Citation metadata: https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/CITATION.cff
+
+## Repository
+- Source: https://github.com/hashgraph-online/skill-publish

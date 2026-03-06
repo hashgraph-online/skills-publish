@@ -1,6 +1,6 @@
 {
   "title": "skill-publish",
-  "description": "GitHub Action for validating, quoting, publishing, and polling HCS-26 skill releases through Registry Broker. Canonical product URLs: https://hol.org/registry, https://hol.org/registry/skills, https://hol.org/docs/registry-broker/.",
+  "description": "Official GitHub Action for validating, quoting, publishing, and polling HCS-26 skill releases through the Hashgraph Online Registry Broker.",
   "upload_type": "software",
   "access_right": "open",
   "license": "apache-2.0",
@@ -15,7 +15,9 @@
     "registry",
     "hedera",
     "hcs-26",
-    "skills"
+    "skills",
+    "registry-broker",
+    "openapi"
   ],
   "related_identifiers": [
     {
@@ -34,8 +36,28 @@
       "scheme": "url"
     },
     {
+      "identifier": "https://hol.org/registry/docs",
+      "relation": "isDocumentedBy",
+      "scheme": "url"
+    },
+    {
       "identifier": "https://hol.org/registry/api/v1/openapi.json",
       "relation": "documents",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/schemas/skill.schema.json",
+      "relation": "isDerivedFrom",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/apis.json",
+      "relation": "hasPart",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/llms.txt",
+      "relation": "hasPart",
       "scheme": "url"
     }
   ]

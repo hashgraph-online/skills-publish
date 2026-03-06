@@ -1,0 +1,66 @@
+name: Schema Validate
+
+on:
+  pull_request:
+    paths:
+      - schemas/**
+      - examples/**
+      - action.yml
+      - entrypoint.mjs
+      - README.md
+      - CITATION.cff
+      - .zenodo.json
+      - apis.json
+      - llms.txt
+  push:
+    branches:
+      - main
+    paths:
+      - schemas/**
+      - examples/**
+      - action.yml
+      - entrypoint.mjs
+      - README.md
+      - CITATION.cff
+      - .zenodo.json
+      - apis.json
+      - llms.txt
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install validation dependencies
+        run: npm install --no-save ajv@8 ajv-formats@3
+
+      - name: Validate example skill manifest
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const Ajv2020 = require('ajv/dist/2020').default;
+          const addFormats = require('ajv-formats').default;
+
+          const schema = JSON.parse(fs.readFileSync('schemas/skill.schema.json', 'utf8'));
+          const example = JSON.parse(fs.readFileSync('examples/skill.json', 'utf8'));
+
+          const ajv = new Ajv2020({ allErrors: true, strict: false });
+          addFormats(ajv);
+          const validate = ajv.compile(schema);
+          const ok = validate(example);
+
+          if (!ok) {
+            console.error(JSON.stringify(validate.errors, null, 2));
+            process.exit(1);
+          }
+
+          console.log('Schema validation passed for examples/skill.json');
+          NODE

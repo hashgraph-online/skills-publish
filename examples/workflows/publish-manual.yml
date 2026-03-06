@@ -1,0 +1,35 @@
+name: Publish Skill (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      skill_dir:
+        type: string
+        required: true
+        default: skills/my-skill
+      version:
+        type: string
+        required: false
+      annotate:
+        type: choice
+        required: true
+        default: "false"
+        options:
+          - "false"
+          - "true"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish skill package
+        uses: hashgraph-online/skill-publish@v1
+        with:
+          api-key: ${{ secrets.RB_API_KEY }}
+          skill-dir: ${{ inputs.skill_dir }}
+          version: ${{ inputs.version }}
+          annotate: ${{ inputs.annotate }}
+          github-token: ${{ github.token }}
