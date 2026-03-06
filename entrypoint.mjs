@@ -1,8 +1,12 @@
-import { readFile, readdir, stat, appendFile } from 'node:fs/promises';
+import { readFile, stat, appendFile } from 'node:fs/promises';
 import path from 'node:path';
+import { buildDistributionKit, normalizeApiBaseUrl } from './bin/lib/distribution-kit.mjs';
+import { submitToIndexNow } from './bin/lib/indexnow.mjs';
+import { discoverSkillPackageFiles } from './bin/lib/package-files.mjs';
 
 const stdout = (message) => process.stdout.write(`${message}\n`);
 const stderr = (message) => process.stderr.write(`${message}\n`);
+const printJson = (value) => process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 
 class ActionError extends Error {
   constructor(message) {
@@ -27,23 +31,6 @@ const toBoolean = (value, defaultValue) => {
 const parseNumber = (value, fallback) => {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-};
-
-const DEFAULT_API_BASE_URL = 'https://hol.org/registry/api/v1';
-
-const normalizeApiBaseUrl = (value) => {
-  const trimmed = String(value ?? '').trim();
-  if (!trimmed) {
-    return DEFAULT_API_BASE_URL;
-  }
-  const withoutTrailingSlash = trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
-  if (withoutTrailingSlash.endsWith('/api/v1')) {
-    return withoutTrailingSlash;
-  }
-  if (withoutTrailingSlash.endsWith('/registry')) {
-    return `${withoutTrailingSlash}/api/v1`;
-  }
-  return `${withoutTrailingSlash}/api/v1`;
 };
 
 const guessMimeType = (filePath) => {
@@ -93,33 +80,6 @@ const resolveRole = (filePath) => {
     return 'skill-icon';
   }
   return 'file';
-};
-
-const walkFiles = async (rootDir, relativeDir = '') => {
-  const fullDir = relativeDir ? path.join(rootDir, relativeDir) : rootDir;
-  const entries = await readdir(fullDir, { withFileTypes: true });
-  const files = [];
-
-  for (const entry of entries) {
-    if (entry.name === '.git') {
-      continue;
-    }
-    const childRelative = relativeDir
-      ? path.posix.join(relativeDir, entry.name)
-      : entry.name;
-    const childFullPath = path.join(rootDir, childRelative);
-    if (entry.isDirectory()) {
-      const nested = await walkFiles(rootDir, childRelative);
-      files.push(...nested);
-      continue;
-    }
-    if (!entry.isFile()) {
-      continue;
-    }
-    files.push({ relativePath: childRelative, absolutePath: childFullPath });
-  }
-
-  return files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 };
 
 const buildApiUrl = (baseUrl, endpointPath, query = null) => {
@@ -234,6 +194,59 @@ const appendStepSummary = async (markdown) => {
   await appendFile(summaryPath, `${markdown}\n`);
 };
 
+const setDistributionOutputs = async (distribution) => {
+  await setActionOutput('skill-page-url', distribution.urls.skillPageUrl);
+  await setActionOutput('entity-url', distribution.urls.entityUrl);
+  await setActionOutput('docs-url', distribution.urls.docsUrl);
+  await setActionOutput('openapi-url', distribution.urls.openapiUrl);
+  await setActionOutput(
+    'install-url-pinned-skill-md',
+    distribution.urls.pinnedSkillMdUrl,
+  );
+  await setActionOutput(
+    'install-url-latest-skill-md',
+    distribution.urls.latestSkillMdUrl,
+  );
+  await setActionOutput(
+    'install-url-pinned-manifest',
+    distribution.urls.pinnedManifestUrl,
+  );
+  await setActionOutput(
+    'install-url-latest-manifest',
+    distribution.urls.latestManifestUrl,
+  );
+  await setActionOutput(
+    'install-metadata-pinned-url',
+    distribution.urls.installMetadataPinnedUrl,
+  );
+  await setActionOutput(
+    'install-metadata-latest-url',
+    distribution.urls.installMetadataLatestUrl,
+  );
+  await setActionOutput('badge-markdown', distribution.snippets.badgeMarkdown);
+  await setActionOutput('badge-html', distribution.snippets.badgeHtml);
+  await setActionOutput('markdown-link', distribution.snippets.markdownLink);
+  await setActionOutput('html-link', distribution.snippets.htmlLink);
+  await setActionOutput('readme-snippet', distribution.snippets.readmeSnippet);
+  await setActionOutput('docs-snippet', distribution.snippets.docsSnippet);
+  await setActionOutput('citation-snippet', distribution.snippets.citationSnippet);
+  await setActionOutput('release-notes', distribution.snippets.releaseNotes);
+  await setActionOutput('package-metadata-json', distribution.snippets.packageMetadataJson);
+  await setActionOutput(
+    'codemeta-json',
+    JSON.stringify(distribution.machineReadable.codemeta, null, 2),
+  );
+  await setActionOutput('attested-kit-json', JSON.stringify(distribution, null, 2));
+  await setActionOutput('next-actions', distribution.snippets.nextActions);
+};
+
+const maybeSubmitIndexNow = async (distribution, enabled) => {
+  if (!enabled) {
+    return null;
+  }
+  return submitToIndexNow(distribution.indexing.urls);
+};
+
 const githubApiRequest = async (params) => {
   const { method, endpoint, token, body, accept } = params;
   const apiBaseUrl = getEnv('GITHUB_API_URL', 'https://api.github.com');
@@ -274,14 +287,37 @@ const buildPublishMarkdown = (result) => {
   lines.push(`- skill.json HRL: \`${result.skillJsonHrl ?? 'n/a'}\``);
   lines.push(`- Credits: \`${result.credits ?? 0}\``);
   lines.push(`- Estimated Cost: \`${result.estimatedCostHbar ?? '0'} HBAR\``);
+  if (Array.isArray(result.excludedFiles) && result.excludedFiles.length > 0) {
+    lines.push(`- Excluded paths: \`${result.excludedFiles.length}\``);
+  }
   if (result.published === false && result.skippedReason) {
     lines.push(`- Skip reason: \`${result.skippedReason}\``);
   }
   lines.push('');
   lines.push(`- Repo: \`${result.repoUrl ?? 'n/a'}\``);
   lines.push(`- Commit: \`${result.commitSha ?? 'n/a'}\``);
+  if (result.distribution) {
+    lines.push('');
+    lines.push(`- Skill page: ${result.distribution.urls.skillPageUrl}`);
+    lines.push(`- Pinned SKILL.md: ${result.distribution.urls.pinnedSkillMdUrl}`);
+    lines.push(`- Latest SKILL.md: ${result.distribution.urls.latestSkillMdUrl}`);
+    lines.push(`- Badge: ${result.distribution.snippets.badgeMarkdown}`);
+    lines.push('');
+    lines.push(result.distribution.snippets.nextActions);
+  }
   return lines.join('\n');
 };
+
+const buildDistribution = (apiBaseUrl, name, version, skillJson = {}) =>
+  buildDistributionKit({
+    apiBaseUrl,
+    name,
+    version,
+    style: 'for-the-badge',
+    metric: 'version',
+    label: name,
+    skillJson,
+  });
 
 const annotateResult = async (params) => {
   const {
@@ -364,9 +400,20 @@ const run = async () => {
   const pollTimeoutMs = parseNumber(getEnv('INPUT_POLL_TIMEOUT_MS'), 720000);
   const pollIntervalMs = parseNumber(getEnv('INPUT_POLL_INTERVAL_MS'), 4000);
   const shouldAnnotate = toBoolean(getEnv('INPUT_ANNOTATE'), true);
+  const shouldSubmitIndexNow = toBoolean(getEnv('INPUT_SUBMIT_INDEXNOW'), false);
   const githubToken = getEnv('INPUT_GITHUB_TOKEN');
+  const mode = String(getEnv('INPUT_MODE', 'publish')).trim().toLowerCase() || 'publish';
+  const jsonOutput = toBoolean(getEnv('INPUT_JSON'), false);
+  const log = (message) => {
+    if (!jsonOutput) {
+      stdout(message);
+    }
+  };
 
-  if (!apiKey) {
+  if (!['publish', 'validate', 'quote'].includes(mode)) {
+    throw new ActionError(`Unsupported mode: ${mode}`);
+  }
+  if ((mode === 'publish' || mode === 'quote') && !apiKey) {
     throw new ActionError('Missing api-key input. Configure RB_API_KEY in repository secrets.');
   }
   if (!skillDirInput) {
@@ -379,7 +426,7 @@ const run = async () => {
     throw new ActionError(`Skill directory not found: ${skillDirInput}`);
   }
 
-  const discoveredFiles = await walkFiles(skillDir);
+  const { includedFiles: discoveredFiles, excludedFiles } = await discoverSkillPackageFiles(skillDir);
   const relativePaths = discoveredFiles.map(item => item.relativePath);
   if (!relativePaths.includes('skill.json')) {
     throw new ActionError(`Missing required file: ${path.posix.join(skillDirInput, 'skill.json')}`);
@@ -448,76 +495,98 @@ const run = async () => {
     throw new ActionError('skill.json must include description.');
   }
 
-  const existingVersion = await findExistingSkillVersion({
-    apiBaseUrl,
-    apiKey,
-    name: skillName,
-    version: skillVersion,
-  });
+  if (mode === 'publish') {
+    const existingVersion = await findExistingSkillVersion({
+      apiBaseUrl,
+      apiKey,
+      name: skillName,
+      version: skillVersion,
+    });
 
-  if (existingVersion) {
-    const result = {
-      skillName,
-      skillVersion,
-      quoteId: '',
-      jobId: '',
-      directoryTopicId:
-        typeof existingVersion.directoryTopicId === 'string'
-          ? existingVersion.directoryTopicId
-          : null,
-      packageTopicId:
-        typeof existingVersion.packageTopicId === 'string'
-          ? existingVersion.packageTopicId
-          : typeof existingVersion.versionRegistryTopicId === 'string'
-            ? existingVersion.versionRegistryTopicId
+    if (existingVersion) {
+      const result = {
+        skillName,
+        skillVersion,
+        quoteId: '',
+        jobId: '',
+        directoryTopicId:
+          typeof existingVersion.directoryTopicId === 'string'
+            ? existingVersion.directoryTopicId
             : null,
-      skillJsonHrl:
-        typeof existingVersion.skillJsonHrl === 'string'
-          ? existingVersion.skillJsonHrl
-          : typeof existingVersion.manifestHrl === 'string'
-            ? existingVersion.manifestHrl
-            : null,
-      credits: 0,
-      estimatedCostHbar: '0',
-      repoUrl: repoUrl || null,
-      commitSha: commitSha || null,
-      published: false,
-      skippedReason: 'version-exists',
-    };
+        packageTopicId:
+          typeof existingVersion.packageTopicId === 'string'
+            ? existingVersion.packageTopicId
+            : typeof existingVersion.versionRegistryTopicId === 'string'
+              ? existingVersion.versionRegistryTopicId
+              : null,
+        skillJsonHrl:
+          typeof existingVersion.skillJsonHrl === 'string'
+            ? existingVersion.skillJsonHrl
+            : typeof existingVersion.manifestHrl === 'string'
+              ? existingVersion.manifestHrl
+              : null,
+        credits: 0,
+        estimatedCostHbar: '0',
+        repoUrl: repoUrl || null,
+        commitSha: commitSha || null,
+        excludedFiles,
+        published: false,
+        skippedReason: 'version-exists',
+        distribution: buildDistribution(apiBaseUrl, skillName, skillVersion, parsedSkillJson),
+      };
 
-    stdout(`Skill version ${skillName}@${skillVersion} already exists. Skipping publish.`);
+      log(`Skill version ${skillName}@${skillVersion} already exists. Skipping publish.`);
 
-    const markdown = buildPublishMarkdown(result);
-    await appendStepSummary(markdown);
+      const markdown = buildPublishMarkdown(result);
+      await appendStepSummary(markdown);
 
-    await setActionOutput('published', 'false');
-    await setActionOutput('skip-reason', result.skippedReason);
-    await setActionOutput('skill-name', result.skillName);
-    await setActionOutput('skill-version', result.skillVersion);
-    await setActionOutput('quote-id', '');
-    await setActionOutput('job-id', '');
-    await setActionOutput('directory-topic-id', result.directoryTopicId ?? '');
-    await setActionOutput('package-topic-id', result.packageTopicId ?? '');
-    await setActionOutput('skill-json-hrl', result.skillJsonHrl ?? '');
-    await setActionOutput('credits', '0');
-    await setActionOutput('estimated-cost-hbar', '0');
-    await setActionOutput('annotation-target', 'none');
-    await setActionOutput('result-json', JSON.stringify(result, null, 2));
+      await setActionOutput('published', 'false');
+      await setActionOutput('skip-reason', result.skippedReason);
+      await setActionOutput('skill-name', result.skillName);
+      await setActionOutput('skill-version', result.skillVersion);
+      await setActionOutput('quote-id', '');
+      await setActionOutput('job-id', '');
+      await setActionOutput('directory-topic-id', result.directoryTopicId ?? '');
+      await setActionOutput('package-topic-id', result.packageTopicId ?? '');
+      await setActionOutput('skill-json-hrl', result.skillJsonHrl ?? '');
+      await setActionOutput('credits', '0');
+      await setActionOutput('estimated-cost-hbar', '0');
+      await setActionOutput('annotation-target', 'none');
+      const indexNowResult = await maybeSubmitIndexNow(
+        result.distribution,
+        shouldSubmitIndexNow,
+      );
+      await setActionOutput(
+        'indexnow-result',
+        indexNowResult ? JSON.stringify(indexNowResult, null, 2) : '',
+      );
+      await setDistributionOutputs(result.distribution);
+      await setActionOutput('result-json', JSON.stringify(result, null, 2));
 
-    stdout(markdown);
-    return;
+      if (jsonOutput) {
+        printJson(result);
+      } else {
+        stdout(markdown);
+      }
+      return;
+    }
   }
 
-  const config = await requestJson({
-    method: 'GET',
-    url: buildApiUrl(apiBaseUrl, '/skills/config'),
-    apiKey,
-  });
-  const maxFiles = Number(config?.maxFiles ?? 0);
-  const maxTotalSizeBytes = Number(config?.maxTotalSizeBytes ?? 0);
-  const allowedMimeTypes = Array.isArray(config?.allowedMimeTypes)
-    ? new Set(config.allowedMimeTypes.map(value => String(value)))
-    : null;
+  let maxFiles = 0;
+  let maxTotalSizeBytes = 0;
+  let allowedMimeTypes = null;
+  if (mode === 'publish' || mode === 'quote') {
+    const config = await requestJson({
+      method: 'GET',
+      url: buildApiUrl(apiBaseUrl, '/skills/config'),
+      apiKey,
+    });
+    maxFiles = Number(config?.maxFiles ?? 0);
+    maxTotalSizeBytes = Number(config?.maxTotalSizeBytes ?? 0);
+    allowedMimeTypes = Array.isArray(config?.allowedMimeTypes)
+      ? new Set(config.allowedMimeTypes.map(value => String(value)))
+      : null;
+  }
 
   if (maxFiles > 0 && discoveredFiles.length > maxFiles) {
     throw new ActionError(`Skill package has ${discoveredFiles.length} files but maxFiles is ${maxFiles}.`);
@@ -548,8 +617,50 @@ const run = async () => {
     throw new ActionError(`Skill package is ${totalBytes} bytes but maxTotalSizeBytes is ${maxTotalSizeBytes}.`);
   }
 
-  stdout(`Validated skill package ${skillName}@${skillVersion} from ${skillDirInput}`);
-  stdout(`Files: ${files.length}, Total bytes: ${totalBytes}`);
+  const validationResult = {
+    mode: 'validate',
+    skillName,
+    skillVersion,
+    skillDir: skillDirInput,
+    files: files.length,
+    excludedFiles,
+    totalBytes,
+    valid: true,
+  };
+
+  log(`Validated skill package ${skillName}@${skillVersion} from ${skillDirInput}`);
+  log(`Files: ${files.length}, Total bytes: ${totalBytes}`);
+  if (excludedFiles.length > 0) {
+    log(
+      `Excluded ${excludedFiles.length} path${excludedFiles.length === 1 ? '' : 's'} from package discovery.`,
+    );
+  }
+
+  if (mode === 'validate') {
+    const distribution = buildDistribution(apiBaseUrl, skillName, skillVersion, parsedSkillJson);
+    validationResult.distribution = distribution;
+    await setActionOutput('published', 'false');
+    await setActionOutput('skip-reason', 'validation-only');
+    await setActionOutput('skill-name', skillName);
+    await setActionOutput('skill-version', skillVersion);
+    await setActionOutput('quote-id', '');
+    await setActionOutput('job-id', '');
+    await setActionOutput('directory-topic-id', '');
+    await setActionOutput('package-topic-id', '');
+    await setActionOutput('skill-json-hrl', '');
+    await setActionOutput('credits', '0');
+    await setActionOutput('estimated-cost-hbar', '0');
+    await setActionOutput('annotation-target', 'none');
+    await setActionOutput('indexnow-result', '');
+    await setDistributionOutputs(distribution);
+    await setActionOutput('result-json', JSON.stringify(validationResult, null, 2));
+    if (jsonOutput) {
+      printJson(validationResult);
+    } else {
+      stdout(`Validation complete for ${skillName}@${skillVersion}.`);
+    }
+    return;
+  }
 
   const quote = await requestJson({
     method: 'POST',
@@ -566,7 +677,47 @@ const run = async () => {
     throw new ActionError('Quote response did not include quoteId.');
   }
 
-  stdout(`Quote complete: ${quoteId} (${quote.credits} credits, ${quote.estimatedCostHbar} HBAR est)`);
+  const quoteResult = {
+    mode: 'quote',
+    skillName,
+    skillVersion,
+    quoteId,
+    credits: Number(quote?.credits ?? 0),
+    estimatedCostHbar: String(quote?.estimatedCostHbar ?? ''),
+    files: files.length,
+    excludedFiles,
+    totalBytes,
+  };
+
+  log(`Quote complete: ${quoteId} (${quote.credits} credits, ${quote.estimatedCostHbar} HBAR est)`);
+
+  if (mode === 'quote') {
+    const distribution = buildDistribution(apiBaseUrl, skillName, skillVersion, parsedSkillJson);
+    quoteResult.distribution = distribution;
+    await setActionOutput('published', 'false');
+    await setActionOutput('skip-reason', 'quote-only');
+    await setActionOutput('skill-name', skillName);
+    await setActionOutput('skill-version', skillVersion);
+    await setActionOutput('quote-id', quoteId);
+    await setActionOutput('job-id', '');
+    await setActionOutput('directory-topic-id', '');
+    await setActionOutput('package-topic-id', '');
+    await setActionOutput('skill-json-hrl', '');
+    await setActionOutput('credits', String(quoteResult.credits));
+    await setActionOutput('estimated-cost-hbar', quoteResult.estimatedCostHbar);
+    await setActionOutput('annotation-target', 'none');
+    await setActionOutput('indexnow-result', '');
+    await setDistributionOutputs(distribution);
+    await setActionOutput('result-json', JSON.stringify(quoteResult, null, 2));
+    if (jsonOutput) {
+      printJson(quoteResult);
+    } else {
+      stdout(
+        `Quote summary: ${quoteResult.credits} credits, ${quoteResult.estimatedCostHbar} HBAR est (${quoteResult.files} files).`,
+      );
+    }
+    return;
+  }
 
   const publish = await requestJson({
     method: 'POST',
@@ -584,7 +735,7 @@ const run = async () => {
     throw new ActionError('Publish response did not include jobId.');
   }
 
-  stdout(`Publish started: job ${jobId}`);
+  log(`Publish started: job ${jobId}`);
 
   const startedAt = Date.now();
   let lastStatus = '';
@@ -597,7 +748,7 @@ const run = async () => {
     });
     const status = String(job?.status ?? '').trim();
     if (status && status !== lastStatus) {
-      stdout(`Job status: ${status}`);
+      log(`Job status: ${status}`);
       lastStatus = status;
     }
     if (status === 'completed') {
@@ -626,7 +777,14 @@ const run = async () => {
     estimatedCostHbar: String(quote?.estimatedCostHbar ?? ''),
     repoUrl: repoUrl || null,
     commitSha: commitSha || null,
+    excludedFiles,
   };
+  result.distribution = buildDistribution(
+    apiBaseUrl,
+    result.skillName,
+    result.skillVersion,
+    parsedSkillJson,
+  );
 
   const markdown = buildPublishMarkdown(result);
   const eventPayload = await parseEventPayload();
@@ -655,9 +813,26 @@ const run = async () => {
   await setActionOutput('credits', String(result.credits ?? 0));
   await setActionOutput('estimated-cost-hbar', String(result.estimatedCostHbar ?? ''));
   await setActionOutput('annotation-target', annotationTarget);
+  const indexNowResult = await maybeSubmitIndexNow(
+    result.distribution,
+    shouldSubmitIndexNow,
+  );
+  await setActionOutput(
+    'indexnow-result',
+    indexNowResult ? JSON.stringify(indexNowResult, null, 2) : '',
+  );
+  await setDistributionOutputs(result.distribution);
   await setActionOutput('result-json', JSON.stringify(result, null, 2));
 
-  stdout(markdown);
+  if (jsonOutput) {
+    printJson({
+      ...result,
+      annotationTarget,
+      published: true,
+    });
+  } else {
+    stdout(markdown);
+  }
 };
 
 run().catch(async error => {

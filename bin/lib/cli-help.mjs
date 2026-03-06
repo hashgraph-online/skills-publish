@@ -11,8 +11,14 @@ export const COMMAND_ALIASES = new Map([
   ['create', 'init'],
   ['i', 'init'],
   ['setup', 'setup'],
+  ['login', 'setup'],
   ['auth', 'setup'],
   ['s', 'setup'],
+  ['whoami', 'whoami'],
+  ['me', 'whoami'],
+  ['credits', 'credits'],
+  ['balance', 'credits'],
+  ['fund', 'fund'],
   ['setup-action', 'setup-action'],
   ['action', 'setup-action'],
   ['workflow', 'setup-action'],
@@ -24,6 +30,14 @@ export const COMMAND_ALIASES = new Map([
   ['doctor', 'doctor'],
   ['diag', 'doctor'],
   ['d', 'doctor'],
+  ['badge', 'badge'],
+  ['install-url', 'install-url'],
+  ['release-notes', 'release-notes'],
+  ['readme-snippet', 'readme-snippet'],
+  ['attested-kit', 'attested-kit'],
+  ['kit', 'attested-kit'],
+  ['apply-kit', 'apply-kit'],
+  ['submit-indexnow', 'submit-indexnow'],
   ['start', 'start'],
   ['wizard', 'start'],
   ['help', 'help'],
@@ -39,9 +53,19 @@ Usage:
 Getting Started:
   start               Interactive quick start (default in TTY)
   setup               Create API key via ledger auth and optionally fund credits
+  whoami              Show the active broker account + credential context
+  credits             Show current credit balance and funding links
+  fund                Securely fund credits by signing an HBAR transfer locally
   doctor [dir]        Run readiness checks for environment + skill package
   setup-action [dir]  Add a GitHub publish workflow to an existing skill repo
   scaffold-repo [dir] Scaffold a new skill repo with package + workflow
+  badge [dir]         Generate canonical badge snippets and URLs
+  install-url [dir]   Generate pinned/latest install URLs
+  release-notes [dir] Generate release-ready markdown for a published version
+  readme-snippet [dir]Generate README markdown snippet for a version
+  attested-kit [dir]  Generate the full attested distribution kit
+  apply-kit [dir]     Write README/docs/codemeta proof blocks locally
+  submit-indexnow [dir] Submit canonical skill URLs to IndexNow
 
 Core Commands:
   init [dir]          Scaffold SKILL.md + skill.json
@@ -54,8 +78,18 @@ Examples:
   npx skill-publish
   npx skill-publish start
   npx skill-publish setup --account-id 0.0.12345 --hedera-private-key <key> --hbar 5
+  npx skill-publish whoami
+  npx skill-publish credits
+  npx skill-publish fund --hbar 5 --hedera-private-key <key>
   npx skill-publish setup-action . --skill-dir skills/my-skill
-  npx skill-publish scaffold-repo ./weather-skill --name weather-skill
+  npx skill-publish scaffold-repo ./weather-skill --name weather-skill --preset api
+  npx skill-publish badge ./skills/weather-skill
+  npx skill-publish install-url ./skills/weather-skill --format json
+  npx skill-publish release-notes ./skills/weather-skill
+  npx skill-publish readme-snippet ./skills/weather-skill
+  npx skill-publish attested-kit ./skills/weather-skill --format json
+  npx skill-publish apply-kit ./skills/weather-skill --repo-dir .
+  npx skill-publish submit-indexnow ./skills/weather-skill
   npx skill-publish doctor ./skills/weather-skill
   npx skill-publish init ./skills/weather-skill
   npx skill-publish validate ./skills/weather-skill
@@ -84,7 +118,7 @@ Options:
 `,
   publish: `skill-publish publish [dir]
 
-Publishes a skill package to the Registry Broker.
+Publishes a skill package to the Registry Broker. Hidden files, env files, lockfiles, build output, and key material are excluded automatically.
 
 Options:
   --api-key <key>              API key (or RB_API_KEY env var)
@@ -104,7 +138,7 @@ Options:
 `,
   validate: `skill-publish validate [dir]
 
-Validates package files and skill metadata without publishing.
+Validates package files and skill metadata without publishing. The file summary reflects the same exclusion rules used by quote and publish.
 
 Options:
   --skill-dir <dir>            Skill directory; [dir] positional also supported
@@ -114,7 +148,7 @@ Options:
 `,
   quote: `skill-publish quote [dir]
 
-Validates package and requests a publish quote without creating a publish job.
+Validates package and requests a publish quote without creating a publish job. Uses the same safe file exclusion rules as publish.
 
 Options:
   --api-key <key>              API key (or RB_API_KEY env var)
@@ -133,6 +167,7 @@ Options:
   --name <name>                Skill name (defaults to folder name)
   --description <text>         Skill description
   --version <version>          Version (default: 1.0.0)
+  --preset <name>              general|api|docs|mcp|assistant|monorepo
   --force                      Overwrite existing files
   --yes                        Alias for --force
 `,
@@ -151,8 +186,48 @@ Options:
   --expires-in-minutes <n>     API key TTL in minutes (1-60, default: 60)
   --hbar <amount>              Optional HBAR amount to purchase credits immediately
   --memo <text>                Optional purchase memo for top-up
+  --credits <amount>           Future funding target in credits (use fund command)
   --store-path <path>          Optional path for local credential store
   --no-save                    Do not persist API key to local credential store
+  --json                       Print machine-readable summary
+`,
+  whoami: `skill-publish whoami
+
+Shows which broker/account/API key the CLI will use, plus the current credit balance.
+
+Options:
+  --api-key <key>              API key (or RB_API_KEY env var / local credential store)
+  --api-base-url <url>         API base URL (default: https://hol.org/registry/api/v1)
+  --account-id <id>            Account ID override for stored credentials
+  --store-path <path>          Optional path for local credential store
+  --json                       Print machine-readable summary
+`,
+  credits: `skill-publish credits
+
+Shows the active credit balance and funding links for the current broker account.
+
+Options:
+  --api-key <key>              API key (or RB_API_KEY env var / local credential store)
+  --api-base-url <url>         API base URL (default: https://hol.org/registry/api/v1)
+  --account-id <id>            Account ID override for stored credentials
+  --store-path <path>          Optional path for local credential store
+  --json                       Print machine-readable summary
+`,
+  fund: `skill-publish fund
+
+Creates a secure HBAR funding intent, signs the transfer locally, submits it to Hedera, and waits for credits to reconcile.
+
+Options:
+  --api-key <key>              API key (or RB_API_KEY env var / local credential store)
+  --api-base-url <url>         API base URL (default: https://hol.org/registry/api/v1)
+  --account-id <id>            Account ID override for stored credentials
+  --hedera-private-key <key>   Hedera private key used only for local signing
+  --hbar <amount>              HBAR amount to transfer
+  --credits <amount>           Desired credit amount (broker converts to HBAR)
+  --memo <text>                Optional purchase memo override
+  --wait-timeout-ms <ms>       Max wait for balance reconciliation (default: 90000)
+  --wait-interval-ms <ms>      Poll interval while waiting for balance (default: 4000)
+  --store-path <path>          Optional path for local credential store
   --json                       Print machine-readable summary
 `,
   'setup-action': `skill-publish setup-action [repoDir]
@@ -176,6 +251,7 @@ Options:
   --name <name>                Skill name (defaults to folder name)
   --description <text>         Skill description
   --version <version>          Skill version (default: 1.0.0)
+  --preset <name>              general|api|docs|mcp|assistant|monorepo
   --skill-dir <dir>            Skill package directory (default: skills/<name>)
   --workflow-path <path>       Workflow output path (default: .github/workflows/publish-skill.yml)
   --trigger <mode>             Workflow trigger: release | manual (default: release)
@@ -191,7 +267,98 @@ Options:
   --api-key <key>              API key (or RB_API_KEY env var / local credential store)
   --account-id <id>            Hedera account ID for balance checks
   --skill-dir <dir>            Skill directory; [dir] positional also supported
+  --fix                        Initialize a missing package in place when both files are absent
   --store-path <path>          Optional path for local credential store
   --json                       Print machine-readable summary
+`,
+  badge: `skill-publish badge [dir]
+
+Generates canonical badge snippets and URLs for a skill version.
+
+Options:
+  --skill-dir <dir>            Skill directory; [dir] positional also supported
+  --name <name>                Override skill name (from skill.json when omitted)
+  --version <version>          Override version (from skill.json when omitted)
+  --api-base-url <url>         API base URL (default: https://hol.org/registry/api/v1)
+  --label <text>               Badge label override (default: skill name)
+  --metric <metric>            Badge metric (default: version)
+  --style <style>              Badge style (default: for-the-badge)
+  --format <type>              markdown|html|image|api|json (default: markdown)
+  --json                       Print machine-readable summary
+`,
+  'install-url': `skill-publish install-url [dir]
+
+Generates canonical pinned/latest install and resolver URLs for a skill version.
+
+Options:
+  --skill-dir <dir>            Skill directory; [dir] positional also supported
+  --name <name>                Override skill name (from skill.json when omitted)
+  --version <version>          Override version (from skill.json when omitted)
+  --api-base-url <url>         API base URL (default: https://hol.org/registry/api/v1)
+  --format <type>              summary|pinned-skill-md|latest-skill-md|pinned-manifest|latest-manifest|pinned-install-metadata|latest-install-metadata|json
+  --json                       Print machine-readable summary
+`,
+  'release-notes': `skill-publish release-notes [dir]
+
+Generates release-ready markdown with canonical install links.
+
+Options:
+  --skill-dir <dir>            Skill directory; [dir] positional also supported
+  --name <name>                Override skill name (from skill.json when omitted)
+  --version <version>          Override version (from skill.json when omitted)
+  --api-base-url <url>         API base URL (default: https://hol.org/registry/api/v1)
+  --label <text>               Badge label override (default: skill name)
+  --metric <metric>            Badge metric (default: version)
+  --style <style>              Badge style (default: for-the-badge)
+  --json                       Print machine-readable summary
+`,
+  'readme-snippet': `skill-publish readme-snippet [dir]
+
+Generates README markdown that includes badge + pinned install references.
+
+Options:
+  --skill-dir <dir>            Skill directory; [dir] positional also supported
+  --name <name>                Override skill name (from skill.json when omitted)
+  --version <version>          Override version (from skill.json when omitted)
+  --api-base-url <url>         API base URL (default: https://hol.org/registry/api/v1)
+  --label <text>               Badge label override (default: skill name)
+  --metric <metric>            Badge metric (default: version)
+  --style <style>              Badge style (default: for-the-badge)
+  --json                       Print machine-readable summary
+`,
+  'attested-kit': `skill-publish attested-kit [dir]
+
+Generates the full attested distribution kit for a skill version.
+
+Options:
+  --skill-dir <dir>            Skill directory; [dir] positional also supported
+  --name <name>                Override skill name (from skill.json when omitted)
+  --version <version>          Override version (from skill.json when omitted)
+  --api-base-url <url>         API base URL (default: https://hol.org/registry/api/v1)
+  --label <text>               Badge label override (default: skill name)
+  --metric <metric>            Badge metric (default: version)
+  --style <style>              Badge style (default: for-the-badge)
+  --format <type>              json|summary|docs|citation|codemeta|package
+  --json                       Print machine-readable summary
+`,
+  'apply-kit': `skill-publish apply-kit [dir]
+
+Writes attested distribution blocks into local publisher-owned surfaces.
+
+Options:
+  --skill-dir <dir>            Skill directory; [dir] positional also supported
+  --repo-dir <dir>             Repository root (default: .)
+  --readme-path <path>         README path relative to repo root (default: README.md)
+  --docs-path <path>           Optional docs path relative to repo root
+  --codemeta-path <path>       codemeta output path relative to repo root (default: codemeta.json)
+  --api-base-url <url>         API base URL (default: https://hol.org/registry/api/v1)
+`,
+  'submit-indexnow': `skill-publish submit-indexnow [dir]
+
+Submits canonical skill URLs from the attested distribution kit to IndexNow.
+
+Options:
+  --skill-dir <dir>            Skill directory; [dir] positional also supported
+  --api-base-url <url>         API base URL (default: https://hol.org/registry/api/v1)
 `,
 };

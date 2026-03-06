@@ -1,6 +1,9 @@
 import { constants } from 'node:fs';
 import { access, mkdir, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { applyDistributionKit } from './apply-distribution-kit.mjs';
+import { buildDistributionKit } from './distribution-kit.mjs';
+import { buildSkillJson, buildSkillMarkdown, listSkillPresetIds, resolveSkillPreset } from './skill-presets.mjs';
 
 function normalizeName(value) {
   return String(value ?? '')
@@ -126,6 +129,7 @@ jobs:
           api-key: \${{ secrets.RB_API_KEY }}
           skill-dir: ${skillDir}
           annotate: "${annotate ? 'true' : 'false'}"
+          submit-indexnow: "true"
           github-token: \${{ github.token }}
 `;
 }
@@ -156,6 +160,7 @@ jobs:
           skill-dir: ${skillDir}
           version: \${{ inputs.version }}
           annotate: "${annotate ? 'true' : 'false'}"
+          submit-indexnow: "true"
           github-token: \${{ github.token }}
 `;
 }
@@ -193,37 +198,21 @@ async function directoryHasContent(dirPath) {
 async function writeSkillPackage(params) {
   const skillDir = path.join(params.repoDir, params.skillDir);
   await mkdir(skillDir, { recursive: true });
-
-  const skillMd = `# ${params.skillName}
-
-## Overview
-${params.description}
-
-## When To Use
-- Add the primary scenarios this skill is designed for.
-
-## Inputs
-- List required inputs and expected formats.
-
-## Output
-- Explain the expected result and format.
-
-## Constraints
-- Note boundaries, safety requirements, and assumptions.
-`;
-
-  const skillJson = {
-    name: params.skillName,
+  const skillMd = buildSkillMarkdown({
+    skillName: params.skillName,
+    description: params.description,
+    preset: params.preset,
+  });
+  const skillJson = buildSkillJson({
+    skillName: params.skillName,
     version: params.version,
     description: params.description,
-    license: 'Apache-2.0',
-    author: process.env.USER || 'Skill Author',
-    category: 'general',
-    tags: [params.skillName],
-  };
+    preset: params.preset,
+  });
 
   await writeFile(path.join(skillDir, 'SKILL.md'), `${skillMd}\n`, 'utf8');
   await writeFile(path.join(skillDir, 'skill.json'), `${JSON.stringify(skillJson, null, 2)}\n`, 'utf8');
+  return skillJson;
 }
 
 async function writeRepoReadme(repoDir, skillName, skillDir) {
@@ -244,6 +233,55 @@ This repository contains an HCS-26 skill package and CI publishing workflow powe
 `;
 
   await writeFile(readmePath, `${readme}\n`, 'utf8');
+}
+
+async function writeRepoGitignore(repoDir) {
+  const gitignorePath = path.join(repoDir, '.gitignore');
+  if (await pathExists(gitignorePath)) {
+    return;
+  }
+
+  const gitignore = `node_modules/
+dist/
+build/
+coverage/
+.next/
+.turbo/
+tmp/
+temp/
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+bun.lockb
+`;
+
+  await writeFile(gitignorePath, `${gitignore}\n`, 'utf8');
+}
+
+async function writeScaffoldDistribution(repoDir, skillJson) {
+  const distribution = buildDistributionKit({
+    apiBaseUrl: 'https://hol.org/registry/api/v1',
+    name: skillJson.name,
+    version: skillJson.version,
+    label: skillJson.name,
+    metric: 'version',
+    style: 'for-the-badge',
+    skillJson,
+  });
+
+  await applyDistributionKit({
+    repoDir,
+    readmePath: 'README.md',
+    docsPath: '',
+    codemetaPath: 'codemeta.json',
+    distribution,
+  });
 }
 
 export async function runSetupActionCommand(options, positionals, context) {
@@ -302,17 +340,25 @@ export async function runScaffoldRepoCommand(options, positionals, context) {
 
   const description = String(options.description ?? 'Describe what this skill helps users do.').trim();
   const version = String(options.version ?? '1.0.0').trim() || '1.0.0';
+  const preset = String(options.preset ?? '').trim().toLowerCase();
+  if (preset && !resolveSkillPreset(preset)) {
+    context.fail(
+      `Unknown preset "${preset}". Available presets: ${listSkillPresetIds().join(', ')}.`,
+      'scaffold-repo',
+    );
+  }
   const skillDir = normalizeSkillDir(options['skill-dir'] ?? `skills/${skillName}`);
   const trigger = normalizeTrigger(options.trigger);
   const workflowPath = String(options['workflow-path'] ?? '.github/workflows/publish-skill.yml').trim();
   const annotate = normalizeBoolean(options.annotate, true);
 
-  await writeSkillPackage({
+  const skillJson = await writeSkillPackage({
     repoDir: targetDir,
     skillDir,
     skillName,
     description,
     version,
+    preset,
   });
 
   const workflowOutput = await writeWorkflow({
@@ -324,8 +370,13 @@ export async function runScaffoldRepoCommand(options, positionals, context) {
     force: true,
   });
   await writeRepoReadme(targetDir, skillName, skillDir);
+  await writeRepoGitignore(targetDir);
+  await writeScaffoldDistribution(targetDir, skillJson);
 
   process.stdout.write(`${context.colors.green('Scaffolded')} ${context.colors.bold(path.relative(process.cwd(), targetDir) || '.')}\n`);
+  if (preset) {
+    process.stdout.write(`Preset: ${preset}\n`);
+  }
   process.stdout.write(`Skill package: ${toPosix(path.join(path.relative(process.cwd(), targetDir), skillDir))}\n`);
   process.stdout.write(`Workflow: ${path.relative(process.cwd(), workflowOutput)}\n`);
   process.stdout.write('Next: `cd` into the repo, add RB_API_KEY in GitHub secrets, then create a release.\n');
