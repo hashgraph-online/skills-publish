@@ -59,13 +59,13 @@ Getting Started:
   doctor [dir]        Run readiness checks for environment + skill package
   setup-action [dir]  Add a GitHub publish workflow to an existing skill repo
   scaffold-repo [dir] Scaffold a new skill repo with package + workflow
-  badge [dir]         Generate canonical badge snippets and URLs
-  install-url [dir]   Generate pinned/latest install URLs
-  release-notes [dir] Generate release-ready markdown for a published version
-  readme-snippet [dir]Generate README markdown snippet for a version
-  attested-kit [dir]  Generate the full attested distribution kit
-  apply-kit [dir]     Write README/docs/codemeta proof blocks locally
-  submit-indexnow [dir] Submit canonical skill URLs to IndexNow
+  badge [dir]            Generate canonical badge snippets and URLs
+  install-url [dir]      Generate pinned/latest install URLs
+  release-notes [dir]    Generate release-ready markdown for a published version
+  readme-snippet [dir]   Generate README markdown snippet for a version
+  attested-kit [dir]     Generate the full attested distribution kit
+  apply-kit [dir]        Write README/docs/codemeta proof blocks locally
+  submit-indexnow [dir]  Submit canonical skill URLs to IndexNow
 
 Core Commands:
   init [dir]          Scaffold SKILL.md + skill.json
