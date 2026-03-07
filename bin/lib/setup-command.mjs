@@ -142,8 +142,8 @@ export async function runSetupFlow(options) {
         'api-key': apiKey,
         'account-id': accountId,
         network,
-        ...(hbarAmount > 0 ? { hbar: hbarAmount } : {}),
-        ...(creditsAmount > 0 ? { credits: creditsAmount } : {}),
+        hbar: hbarAmount > 0 ? hbarAmount : undefined,
+        credits: creditsAmount > 0 ? creditsAmount : undefined,
       });
       funding = {
         hbarAmount: fundingResult.intent.hbarAmount,

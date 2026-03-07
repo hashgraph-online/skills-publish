@@ -27,6 +27,9 @@ on:
       - llms.txt
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-latest

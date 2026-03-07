@@ -3,16 +3,7 @@ import { runScaffoldRepoCommand } from './repo-commands.mjs';
 import { runSetupFlow } from './setup-command.mjs';
 import { runDoctorCommand } from './doctor-command.mjs';
 import { listSkillPresetIds, resolveSkillPreset } from './skill-presets.mjs';
-
-function normalizeName(value) {
-  return String(value ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/gu, '-')
-    .replace(/^-+/u, '')
-    .replace(/-+$/u, '')
-    .slice(0, 120);
-}
+import { normalizeSkillName } from './skill-package.mjs';
 
 function normalizeSkillDir(value, skillName) {
   const raw = String(value ?? `skills/${skillName}`).trim();
@@ -38,7 +29,7 @@ export async function runCreateCommand(options, positionals, context) {
     positionals[0] ?? options['repo-dir'] ?? './my-skill-repo',
   );
   const skillName =
-    normalizeName(options.name || path.basename(repoDir)) || 'my-skill';
+    normalizeSkillName(options.name || path.basename(repoDir)) || 'my-skill';
   const preset = String(options.preset ?? '').trim().toLowerCase();
 
   if (preset && !resolveSkillPreset(preset)) {

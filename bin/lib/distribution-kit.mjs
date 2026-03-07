@@ -1,21 +1,8 @@
 import { buildCodemetaDocument } from './codemeta.mjs';
+import { normalizeBaseUrl as normalizeApiBaseUrl } from './broker-api.mjs';
 
 function trimTrailingSlashes(value) {
   return String(value ?? '').trim().replace(/\/+$/u, '');
-}
-
-export function normalizeApiBaseUrl(value) {
-  const trimmed = trimTrailingSlashes(value);
-  if (!trimmed) {
-    return 'https://hol.org/registry/api/v1';
-  }
-  if (trimmed.endsWith('/api/v1')) {
-    return trimmed;
-  }
-  if (trimmed.endsWith('/registry')) {
-    return `${trimmed}/api/v1`;
-  }
-  return `${trimmed}/api/v1`;
 }
 
 function deriveRegistryBaseUrl(apiBaseUrl) {
