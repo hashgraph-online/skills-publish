@@ -29,7 +29,22 @@ jobs:
             exit 1
           fi
 
+      - name: Check published version
+        id: package-version
+        run: |
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          echo "package_name=$PACKAGE_NAME" >> "$GITHUB_OUTPUT"
+          echo "package_version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+            echo "Package ${PACKAGE_NAME}@${PACKAGE_VERSION} is already published. Skipping npm publish."
+            exit 0
+          fi
+          echo "already_published=false" >> "$GITHUB_OUTPUT"
+
       - name: Publish package
+        if: steps.package-version.outputs.already_published != 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --provenance
