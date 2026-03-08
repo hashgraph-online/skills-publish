@@ -123,6 +123,7 @@ Distribution helper flows:
 ```bash
 npx skill-publish badge ./skills/my-skill
 npx skill-publish install-url ./skills/my-skill --format summary
+npx skill-publish install-url --name programmable-secrets --version 1.0.1 --format pinned-skill-md
 npx skill-publish release-notes ./skills/my-skill
 npx skill-publish readme-snippet ./skills/my-skill
 npx skill-publish attested-kit ./skills/my-skill --format json

@@ -15,6 +15,14 @@ async function loadSkillJson(skillDir) {
   return parsed;
 }
 
+async function maybeLoadSkillJson(skillDir) {
+  try {
+    return await loadSkillJson(skillDir);
+  } catch {
+    return null;
+  }
+}
+
 async function resolveNameVersion(options, positionals, context) {
   const skillDir = path.resolve(process.cwd(), positionals[0] ?? options['skill-dir'] ?? '.');
   const explicitName = String(options.name ?? '').trim();
@@ -59,7 +67,7 @@ function resolveFormat(value, fallback) {
 export async function runDistributionCommand(command, options, positionals, context) {
   const identity = await resolveNameVersion(options, positionals, context);
   const skillDir = path.resolve(process.cwd(), positionals[0] ?? options['skill-dir'] ?? '.');
-  const parsedSkillJson = await loadSkillJson(skillDir);
+  const parsedSkillJson = await maybeLoadSkillJson(skillDir);
   const kit = buildDistributionKit({
     name: identity.name,
     version: identity.version,
