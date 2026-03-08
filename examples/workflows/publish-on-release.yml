@@ -1,0 +1,22 @@
+name: Publish Skill
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish skill package
+        uses: hashgraph-online/skill-publish@v1
+        with:
+          api-key: ${{ secrets.RB_API_KEY }}
+          skill-dir: skills/my-skill
+          annotate: "true"
+          github-token: ${{ github.token }}

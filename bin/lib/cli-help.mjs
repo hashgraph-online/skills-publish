@@ -7,8 +7,9 @@ export const COMMAND_ALIASES = new Map([
   ['v', 'validate'],
   ['quote', 'quote'],
   ['q', 'quote'],
+  ['create', 'create'],
+  ['new', 'create'],
   ['init', 'init'],
-  ['create', 'init'],
   ['i', 'init'],
   ['setup', 'setup'],
   ['login', 'setup'],
@@ -25,7 +26,6 @@ export const COMMAND_ALIASES = new Map([
   ['gha', 'setup-action'],
   ['scaffold-repo', 'scaffold-repo'],
   ['scaffold', 'scaffold-repo'],
-  ['new', 'scaffold-repo'],
   ['bootstrap', 'scaffold-repo'],
   ['doctor', 'doctor'],
   ['diag', 'doctor'],
@@ -56,6 +56,7 @@ Getting Started:
   whoami              Show the active broker account + credential context
   credits             Show current credit balance and funding links
   fund                Securely fund credits by signing an HBAR transfer locally
+  create [dir]        Create a full skill repo, run doctor --fix, and optionally quote/publish
   doctor [dir]        Run readiness checks for environment + skill package
   setup-action [dir]  Add a GitHub publish workflow to an existing skill repo
   scaffold-repo [dir] Scaffold a new skill repo with package + workflow
@@ -81,6 +82,7 @@ Examples:
   npx skill-publish whoami
   npx skill-publish credits
   npx skill-publish fund --hbar 5 --hedera-private-key <key>
+  npx skill-publish create ./weather-skill --name weather-skill --preset api
   npx skill-publish setup-action . --skill-dir skills/my-skill
   npx skill-publish scaffold-repo ./weather-skill --name weather-skill --preset api
   npx skill-publish badge ./skills/weather-skill
@@ -91,6 +93,7 @@ Examples:
   npx skill-publish apply-kit ./skills/weather-skill --repo-dir .
   npx skill-publish submit-indexnow ./skills/weather-skill
   npx skill-publish doctor ./skills/weather-skill
+  npx skill-publish doctor ./skills/weather-skill --fix --local-only
   npx skill-publish init ./skills/weather-skill
   npx skill-publish validate ./skills/weather-skill
   npx skill-publish quote ./skills/weather-skill
@@ -170,6 +173,29 @@ Options:
   --preset <name>              general|api|docs|mcp|assistant|monorepo
   --force                      Overwrite existing files
   --yes                        Alias for --force
+`,
+  create: `skill-publish create [repoDir]
+
+Scaffolds a full skill repository, runs doctor --fix on the generated package, and can optionally quote or publish immediately.
+
+Options:
+  --name <name>                Skill name (defaults to repo folder name)
+  --description <text>         Skill description
+  --version <version>          Version (default: 1.0.0)
+  --preset <name>              general|api|docs|mcp|assistant|monorepo
+  --skill-dir <dir>            Skill package directory inside the repo (default: skills/<name>)
+  --workflow-path <path>       Workflow output path (default: .github/workflows/publish-skill.yml)
+  --trigger <mode>             Workflow trigger: release | manual (default: release)
+  --annotate <bool>            Enable action annotations in the generated workflow (default: true)
+  --account-id <id>            Optional Hedera account ID for automatic setup
+  --hedera-private-key <key>   Optional Hedera private key for automatic setup
+  --network <value>            Ledger network (default: hedera:testnet)
+  --hbar <amount>              Optional HBAR top-up during automatic setup
+  --api-key <key>              Existing API key to reuse instead of running setup
+  --local-only                 Run doctor in local-only mode during scaffolding
+  --publish                    Publish immediately after scaffolding and doctor
+  --force                      Overwrite existing target repo contents
+  --json                       Print machine-readable summary
 `,
   setup: `skill-publish setup
 
@@ -267,7 +293,8 @@ Options:
   --api-key <key>              API key (or RB_API_KEY env var / local credential store)
   --account-id <id>            Hedera account ID for balance checks
   --skill-dir <dir>            Skill directory; [dir] positional also supported
-  --fix                        Initialize a missing package in place when both files are absent
+  --fix                        Repair missing SKILL.md, invalid skill.json, and missing required metadata
+  --local-only                 Skip broker/auth/credits checks and only verify local package readiness
   --store-path <path>          Optional path for local credential store
   --json                       Print machine-readable summary
 `,

@@ -1,87 +1,40 @@
-import { access, mkdir, writeFile } from 'node:fs/promises';
-import { constants } from 'node:fs';
 import path from 'node:path';
 import { maskApiKey } from './credential-store.mjs';
 import { runSetupFlow } from './setup-command.mjs';
-
-function normalizeName(value) {
-  return String(value ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/gu, '-')
-    .replace(/^-+/u, '')
-    .replace(/-+$/u, '')
-    .slice(0, 120);
-}
-
-async function pathExists(filePath) {
-  try {
-    await access(filePath, constants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { listSkillPresetIds, resolveSkillPreset } from './skill-presets.mjs';
+import { initializeSkillPackage } from './skill-package.mjs';
 
 export async function runInitCommand(options, positionals, context) {
   const requestedDir = positionals[0] ?? options['skill-dir'] ?? '.';
   const targetDir = path.resolve(process.cwd(), requestedDir);
   const force = Boolean(options.force || options.yes);
-  const candidateName = options.name || path.basename(targetDir);
-  const skillName = normalizeName(candidateName);
-  if (!skillName) {
-    context.fail('Could not derive a valid skill name. Pass --name explicitly.', 'init');
-  }
-  const description = String(options.description ?? 'Describe what this skill helps users do.').trim();
-  const version = String(options.version ?? '1.0.0').trim() || '1.0.0';
-  const skillMdPath = path.join(targetDir, 'SKILL.md');
-  const skillJsonPath = path.join(targetDir, 'skill.json');
-
-  const skillMdExists = await pathExists(skillMdPath);
-  const skillJsonExists = await pathExists(skillJsonPath);
-  if ((skillMdExists || skillJsonExists) && !force) {
+  const preset = String(options.preset ?? '').trim().toLowerCase();
+  if (preset && !resolveSkillPreset(preset)) {
     context.fail(
-      `Target already contains skill files (${path.relative(process.cwd(), targetDir)}). Use --force to overwrite.`,
+      `Unknown preset "${preset}". Available presets: ${listSkillPresetIds().join(', ')}.`,
       'init',
     );
   }
-
-  await mkdir(targetDir, { recursive: true });
-
-  const skillMd = `# ${skillName}
-
-## Overview
-${description}
-
-## When To Use
-- Add the primary scenarios this skill is designed for.
-
-## Inputs
-- List required inputs and expected formats.
-
-## Output
-- Explain the expected result and format.
-
-## Constraints
-- Note boundaries, safety requirements, and assumptions.
-`;
-
-  const skillJson = {
-    name: skillName,
-    version,
-    description,
-    license: 'Apache-2.0',
-    author: process.env.USER || 'Skill Author',
-    category: 'general',
-    tags: [skillName],
-  };
-
-  await writeFile(skillMdPath, `${skillMd}\n`, 'utf8');
-  await writeFile(skillJsonPath, `${JSON.stringify(skillJson, null, 2)}\n`, 'utf8');
+  const initialized = await initializeSkillPackage({
+    targetDir,
+    name: options.name,
+    description: options.description,
+    version: options.version,
+    preset,
+    force,
+  }).catch((error) => {
+    context.fail(
+      error instanceof Error ? error.message : String(error),
+      'init',
+    );
+  });
 
   process.stdout.write(
     `${context.colors.green('Initialized')} ${context.colors.bold(path.relative(process.cwd(), targetDir) || '.')}\n`,
   );
+  if (initialized?.preset) {
+    process.stdout.write(`${context.colors.cyan('Preset')}: ${initialized.preset}\n`);
+  }
   process.stdout.write(
     `${context.colors.cyan('Next')}: npx skill-publish validate ${path.relative(process.cwd(), targetDir) || '.'}\n`,
   );
@@ -121,16 +74,19 @@ export async function runSetupCommand(options, context) {
   if (result.funding) {
     process.stdout.write(`${context.colors.green('Credits funded')}\n`);
     process.stdout.write(`HBAR:     ${result.funding.hbarAmount}\n`);
-    process.stdout.write(`Credited: ${result.funding.credited}\n`);
-    process.stdout.write(`Balance:  ${result.funding.balanceAfterFunding} credits\n`);
+    process.stdout.write(`Credited: ${result.funding.credited ?? 'pending'}\n`);
+    process.stdout.write(`Balance:  ${result.funding.balanceAfterFunding ?? 'pending'} credits\n`);
     if (result.funding.transactionId) {
       process.stdout.write(`Txn:      ${result.funding.transactionId}\n`);
+    }
+    if (result.funding.purchaseId) {
+      process.stdout.write(`Purchase: ${result.funding.purchaseId}\n`);
     }
   } else if (result.fundingError) {
     process.stdout.write(`${context.colors.yellow('Funding skipped')}: ${result.fundingError}\n`);
   } else {
     process.stdout.write(
-      `${context.colors.yellow('No funding executed')}. Pass --hbar <amount> to top up credits now.\n`,
+      `${context.colors.yellow('No funding executed')}. Pass --hbar <amount> or --credits <amount> to top up now.\n`,
     );
   }
 

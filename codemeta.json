@@ -1,0 +1,40 @@
+{
+  "@context": "https://doi.org/10.5063/schema/codemeta-2.0",
+  "@type": "SoftwareSourceCode",
+  "name": "skill-publish",
+  "version": "1.0.0",
+  "description": "Official CLI and GitHub Action for validating, quoting, publishing, and polling trustless HCS-26 skill releases through the Hashgraph Online Registry Broker.",
+  "license": "Apache-2.0",
+  "codeRepository": "https://github.com/hashgraph-online/skill-publish",
+  "issueTracker": "https://github.com/hashgraph-online/skill-publish/issues",
+  "downloadUrl": "https://github.com/hashgraph-online/skill-publish/releases",
+  "url": "https://hol.org/registry/skills/publish",
+  "identifier": "https://doi.org/10.5281/zenodo.18748325",
+  "author": {
+    "@type": "Organization",
+    "name": "Hashgraph Online"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Hashgraph Online",
+    "url": "https://hol.org"
+  },
+  "isPartOf": {
+    "@type": "WebSite",
+    "name": "Hashgraph Online Registry",
+    "url": "https://hol.org/registry"
+  },
+  "subjectOf": [
+    "https://hol.org/registry/skills/publish",
+    "https://hol.org/registry/api/v1/openapi.json",
+    "https://github.com/hashgraph-online/skill-publish/releases",
+    "https://doi.org/10.5281/zenodo.18748325"
+  ],
+  "keywords": [
+    "hcs-26",
+    "registry-broker",
+    "skills",
+    "github-action",
+    "hedera"
+  ]
+}

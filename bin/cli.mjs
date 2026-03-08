@@ -4,8 +4,15 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createColors } from 'picocolors';
+import {
+  runCreditsCommand,
+  runFundCommand,
+  runWhoamiCommand,
+} from './lib/account-commands.mjs';
+import { runCreateCommand } from './lib/create-command.mjs';
 import { loadCredential } from './lib/credential-store.mjs';
 import { runDoctorCommand } from './lib/doctor-command.mjs';
+import { runDistributionCommand } from './lib/distribution-commands.mjs';
 import { runInitCommand, runSetupCommand } from './lib/local-commands.mjs';
 import { runScaffoldRepoCommand, runSetupActionCommand } from './lib/repo-commands.mjs';
 import { runStartCommand } from './lib/start-command.mjs';
@@ -30,6 +37,7 @@ const OPTION_ENV_MAP = new Map([
   ['github-token', 'INPUT_GITHUB_TOKEN'],
   ['json', 'INPUT_JSON'],
   ['mode', 'INPUT_MODE'],
+  ['credits', 'INPUT_CREDITS'],
 ]);
 
 const BOOLEAN_OPTIONS = new Set([
@@ -42,6 +50,9 @@ const BOOLEAN_OPTIONS = new Set([
   'save',
   'no-color',
   'non-interactive',
+  'fix',
+  'local-only',
+  'publish',
 ]);
 
 const VALUE_OPTIONS = new Set([
@@ -63,11 +74,22 @@ const VALUE_OPTIONS = new Set([
   'expires-in-minutes',
   'hbar',
   'memo',
+  'credits',
   'store-path',
   'trigger',
   'workflow-path',
   'repo-dir',
+  'readme-path',
+  'docs-path',
+  'codemeta-path',
   'mode',
+  'label',
+  'style',
+  'metric',
+  'format',
+  'preset',
+  'wait-timeout-ms',
+  'wait-interval-ms',
 ]);
 
 let palette = createColors(true);
@@ -204,12 +226,9 @@ function parseOptions(args, command) {
   return { options, positionals };
 }
 
-function applyCommonDefaults(options) {
+function applyBrokerDefaults(options) {
   if (!options['api-base-url']) {
     options['api-base-url'] = 'https://hol.org/registry/api/v1';
-  }
-  if (!options['skill-dir']) {
-    options['skill-dir'] = '.';
   }
   if (!options['api-key'] && process.env.RB_API_KEY) {
     options['api-key'] = process.env.RB_API_KEY;
@@ -226,6 +245,13 @@ function applyCommonDefaults(options) {
       options['account-id'] = options['account-id'] || stored.accountId;
       options.network = options.network || stored.network;
     }
+  }
+}
+
+function applyCommonDefaults(options) {
+  applyBrokerDefaults(options);
+  if (!options['skill-dir']) {
+    options['skill-dir'] = '.';
   }
 }
 
@@ -340,8 +366,38 @@ async function dispatchCommand(command, options, positionals) {
     });
     return;
   }
+  if (command === 'create') {
+    applyBrokerDefaults(options);
+    await runCreateCommand(options, positionals, {
+      fail,
+      colors: colors(),
+      runEntrypoint,
+    });
+    return;
+  }
   if (command === 'setup') {
     await runSetupCommand(options, {
+      colors: colors(),
+    });
+    return;
+  }
+  if (command === 'whoami') {
+    applyCommonDefaults(options);
+    await runWhoamiCommand(options, positionals, {
+      colors: colors(),
+    });
+    return;
+  }
+  if (command === 'credits') {
+    applyCommonDefaults(options);
+    await runCreditsCommand(options, positionals, {
+      colors: colors(),
+    });
+    return;
+  }
+  if (command === 'fund') {
+    applyCommonDefaults(options);
+    await runFundCommand(options, positionals, {
       colors: colors(),
     });
     return;
@@ -364,6 +420,22 @@ async function dispatchCommand(command, options, positionals) {
     adoptPositionalSkillDir(options, positionals);
     applyCommonDefaults(options);
     await runDoctorCommand(options, positionals, {
+      colors: colors(),
+    });
+    return;
+  }
+  if (
+    command === 'badge' ||
+    command === 'install-url' ||
+    command === 'release-notes' ||
+    command === 'readme-snippet' ||
+    command === 'attested-kit' ||
+    command === 'apply-kit' ||
+    command === 'submit-indexnow'
+  ) {
+    applyCommonDefaults(options);
+    await runDistributionCommand(command, options, positionals, {
+      fail,
       colors: colors(),
     });
     return;

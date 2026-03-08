@@ -4,15 +4,28 @@ import { createInterface } from 'node:readline/promises';
 const START_CHOICES = [
   { id: 'quickstart', label: 'Quickstart walkthrough' },
   { id: 'setup', label: 'Set up API key and credits (ledger auth)' },
+  { id: 'whoami', label: 'Show active broker account and balance' },
+  { id: 'credits', label: 'Check credits and funding links' },
+  { id: 'fund', label: 'Fund credits with a local Hedera signature' },
+  { id: 'create', label: 'Create a full skill repo and run doctor' },
   { id: 'setup-action', label: 'Add GitHub publish workflow to existing repo' },
   { id: 'scaffold-repo', label: 'Scaffold full skill repo + workflow' },
   { id: 'init', label: 'Create a new skill package' },
   { id: 'validate', label: 'Validate an existing package' },
+  { id: 'badge', label: 'Generate a badge snippet for a published version' },
+  { id: 'install-url', label: 'Generate pinned/latest install URLs' },
+  { id: 'release-notes', label: 'Generate release notes snippet' },
+  { id: 'readme-snippet', label: 'Generate README snippet' },
+  { id: 'attested-kit', label: 'Generate full attested distribution kit' },
+  { id: 'apply-kit', label: 'Write README/docs/codemeta proof blocks locally' },
+  { id: 'submit-indexnow', label: 'Submit canonical skill URLs to IndexNow' },
   { id: 'publish', label: 'Publish an existing package' },
   { id: 'doctor', label: 'Run doctor checks' },
   { id: 'help', label: 'Show full help' },
   { id: 'exit', label: 'Exit' },
 ];
+
+const PRESET_HELP = 'general | api | docs | mcp | assistant | monorepo';
 
 function normalizeAnswer(value) {
   return String(value ?? '').trim();
@@ -118,6 +131,7 @@ async function collectInitOptions(rl) {
   const name = normalizeAnswer(await rl.question('Skill name (optional): '));
   const description = normalizeAnswer(await rl.question('Description (optional): '));
   const version = normalizeAnswer(await rl.question('Version [1.0.0]: '));
+  const preset = normalizeAnswer(await rl.question(`Preset [general] (${PRESET_HELP}): `));
 
   const options = {};
   if (name) {
@@ -128,6 +142,9 @@ async function collectInitOptions(rl) {
   }
   if (version) {
     options.version = version;
+  }
+  if (preset) {
+    options.preset = preset;
   }
   return {
     command: 'init',
@@ -164,8 +181,98 @@ async function collectPublishOptions(rl) {
 async function collectDoctorOptions(rl) {
   const directoryRaw = normalizeAnswer(await rl.question('Skill directory [.]: '));
   const directory = directoryRaw || '.';
+  const fix = normalizeYesNo(
+    await rl.question('Auto-initialize a missing package when possible? [y/N]: '),
+    false,
+  );
   return {
     command: 'doctor',
+    options: fix ? { fix: true } : {},
+    positionals: [directory],
+  };
+}
+
+async function collectBadgeOptions(rl) {
+  const directoryRaw = normalizeAnswer(await rl.question('Skill directory [.]: '));
+  const directory = directoryRaw || '.';
+  const formatRaw = normalizeAnswer(await rl.question('Output format [markdown]: '));
+  const format = formatRaw || 'markdown';
+  return {
+    command: 'badge',
+    options: {
+      format,
+    },
+    positionals: [directory],
+  };
+}
+
+async function collectInstallUrlOptions(rl) {
+  const directoryRaw = normalizeAnswer(await rl.question('Skill directory [.]: '));
+  const directory = directoryRaw || '.';
+  const formatRaw = normalizeAnswer(await rl.question('Output format [summary]: '));
+  const format = formatRaw || 'summary';
+  return {
+    command: 'install-url',
+    options: {
+      format,
+    },
+    positionals: [directory],
+  };
+}
+
+async function collectReleaseNotesOptions(rl) {
+  const directoryRaw = normalizeAnswer(await rl.question('Skill directory [.]: '));
+  const directory = directoryRaw || '.';
+  return {
+    command: 'release-notes',
+    options: {},
+    positionals: [directory],
+  };
+}
+
+async function collectReadmeSnippetOptions(rl) {
+  const directoryRaw = normalizeAnswer(await rl.question('Skill directory [.]: '));
+  const directory = directoryRaw || '.';
+  return {
+    command: 'readme-snippet',
+    options: {},
+    positionals: [directory],
+  };
+}
+
+async function collectAttestedKitOptions(rl) {
+  const directoryRaw = normalizeAnswer(await rl.question('Skill directory [.]: '));
+  const directory = directoryRaw || '.';
+  const formatRaw = normalizeAnswer(await rl.question('Output format [json]: '));
+  const format = formatRaw || 'json';
+  return {
+    command: 'attested-kit',
+    options: { format },
+    positionals: [directory],
+  };
+}
+
+async function collectApplyKitOptions(rl) {
+  const directoryRaw = normalizeAnswer(await rl.question('Skill directory [.]: '));
+  const directory = directoryRaw || '.';
+  const repoDirRaw = normalizeAnswer(await rl.question('Repository directory [.]: '));
+  const repoDir = repoDirRaw || '.';
+  const docsPath = normalizeAnswer(await rl.question('Docs path (optional): '));
+  return {
+    command: 'apply-kit',
+    options: {
+      'repo-dir': repoDir,
+      ...(docsPath ? { 'docs-path': docsPath } : {}),
+    },
+    positionals: [directory],
+  };
+}
+
+async function collectSubmitIndexNowOptions(rl) {
+  const directoryRaw = normalizeAnswer(await rl.question('Skill directory [.]: '));
+  const directory = directoryRaw || '.';
+  return {
+    command: 'submit-indexnow',
     options: {},
     positionals: [directory],
   };
@@ -198,6 +305,7 @@ async function collectScaffoldRepoOptions(rl) {
   const name = normalizeAnswer(await rl.question('Skill name (optional): '));
   const description = normalizeAnswer(await rl.question('Description (optional): '));
   const version = normalizeAnswer(await rl.question('Version [1.0.0]: '));
+  const preset = normalizeAnswer(await rl.question(`Preset [general] (${PRESET_HELP}): `));
   const triggerRaw = normalizeAnswer(await rl.question('Workflow trigger [release]: '));
   const trigger = triggerRaw || 'release';
 
@@ -213,6 +321,9 @@ async function collectScaffoldRepoOptions(rl) {
   if (version) {
     options.version = version;
   }
+  if (preset) {
+    options.preset = preset;
+  }
 
   return {
     command: 'scaffold-repo',
@@ -221,12 +332,96 @@ async function collectScaffoldRepoOptions(rl) {
   };
 }
 
+async function collectCreateOptions(rl) {
+  const directoryRaw = normalizeAnswer(await rl.question('New repository directory [./my-skill-repo]: '));
+  const directory = directoryRaw || './my-skill-repo';
+  const name = normalizeAnswer(await rl.question('Skill name (optional): '));
+  const description = normalizeAnswer(await rl.question('Description (optional): '));
+  const version = normalizeAnswer(await rl.question('Version [1.0.0]: '));
+  const preset = normalizeAnswer(await rl.question(`Preset [general] (${PRESET_HELP}): `));
+  const accountId = normalizeAnswer(await rl.question('Hedera account ID for setup (optional): '));
+  const shouldPublish = normalizeYesNo(
+    await rl.question('Publish immediately after scaffold if credentials are available? [y/N]: '),
+    false,
+  );
+
+  const options = {};
+  if (name) {
+    options.name = name;
+  }
+  if (description) {
+    options.description = description;
+  }
+  if (version) {
+    options.version = version;
+  }
+  if (preset) {
+    options.preset = preset;
+  }
+  if (accountId) {
+    options['account-id'] = accountId;
+    options['hedera-private-key'] = await askSecret(
+      rl,
+      'Hedera private key for automatic setup (input hidden): ',
+    );
+  }
+  if (shouldPublish) {
+    options.publish = true;
+  }
+
+  return {
+    command: 'create',
+    options,
+    positionals: [directory],
+  };
+}
+
+async function collectWhoamiOptions() {
+  return {
+    command: 'whoami',
+    options: {},
+    positionals: [],
+  };
+}
+
+async function collectCreditsOptions() {
+  return {
+    command: 'credits',
+    options: {},
+    positionals: [],
+  };
+}
+
+async function collectFundOptions(rl) {
+  const hbarRaw = normalizeAnswer(await rl.question('HBAR amount (leave blank to target credits instead): '));
+  const creditsRaw = hbarRaw
+    ? ''
+    : normalizeAnswer(await rl.question('Credits amount (optional): '));
+  const hederaPrivateKey = await askSecret(
+    rl,
+    'Hedera private key for local signing (input hidden): ',
+  );
+  const options = {
+    'hedera-private-key': hederaPrivateKey,
+  };
+  if (hbarRaw) {
+    options.hbar = hbarRaw;
+  }
+  if (creditsRaw) {
+    options.credits = creditsRaw;
+  }
+  return {
+    command: 'fund',
+    options,
+    positionals: [],
+  };
+}
+
 function printQuickstart(colors) {
   process.stdout.write('\nQuickstart\n');
   process.stdout.write(`1. ${colors.cyan('npx skill-publish setup --account-id 0.0.12345 --hedera-private-key <key> --hbar 5')}\n`);
-  process.stdout.write(`2. ${colors.cyan('npx skill-publish scaffold-repo ./my-skill-repo --name my-skill')}\n`);
-  process.stdout.write(`3. ${colors.cyan('npx skill-publish doctor ./my-skill-repo/skills/my-skill')}\n`);
-  process.stdout.write(`4. ${colors.cyan('npx skill-publish publish ./my-skill-repo/skills/my-skill')}\n`);
+  process.stdout.write(`2. ${colors.cyan('npx skill-publish create ./my-skill-repo --name my-skill --preset api')}\n`);
+  process.stdout.write(`3. ${colors.cyan('npx skill-publish publish ./my-skill-repo/skills/my-skill')}\n`);
 }
 
 export async function runStartCommand(options, context) {
@@ -254,6 +449,18 @@ export async function runStartCommand(options, context) {
     if (choice === 'setup') {
       return await collectSetupOptions(rl);
     }
+    if (choice === 'whoami') {
+      return await collectWhoamiOptions();
+    }
+    if (choice === 'credits') {
+      return await collectCreditsOptions();
+    }
+    if (choice === 'fund') {
+      return await collectFundOptions(rl);
+    }
+    if (choice === 'create') {
+      return await collectCreateOptions(rl);
+    }
     if (choice === 'setup-action') {
       return await collectSetupActionOptions(rl);
     }
@@ -265,6 +472,27 @@ export async function runStartCommand(options, context) {
     }
     if (choice === 'validate') {
       return await collectValidateOptions(rl);
+    }
+    if (choice === 'badge') {
+      return await collectBadgeOptions(rl);
+    }
+    if (choice === 'install-url') {
+      return await collectInstallUrlOptions(rl);
+    }
+    if (choice === 'release-notes') {
+      return await collectReleaseNotesOptions(rl);
+    }
+    if (choice === 'readme-snippet') {
+      return await collectReadmeSnippetOptions(rl);
+    }
+    if (choice === 'attested-kit') {
+      return await collectAttestedKitOptions(rl);
+    }
+    if (choice === 'apply-kit') {
+      return await collectApplyKitOptions(rl);
+    }
+    if (choice === 'submit-indexnow') {
+      return await collectSubmitIndexNowOptions(rl);
     }
     if (choice === 'publish') {
       return await collectPublishOptions(rl);

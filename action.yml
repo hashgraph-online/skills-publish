@@ -40,6 +40,10 @@ inputs:
     description: "When true, posts results to release notes or merged PR"
     required: false
     default: "true"
+  submit-indexnow:
+    description: "When true, submits canonical skill URLs to IndexNow after publish or skip-existing"
+    required: false
+    default: "false"
   github-token:
     description: "GitHub token used for release or PR annotations"
     required: false
@@ -77,12 +81,81 @@ outputs:
   estimated-cost-hbar:
     description: "Estimated HBAR quoted for the publish"
     value: ${{ steps.publish.outputs.estimated-cost-hbar }}
+  skill-page-url:
+    description: "Canonical skill detail page URL for the resolved name@version"
+    value: ${{ steps.publish.outputs.skill-page-url }}
+  entity-url:
+    description: "Machine-readable entity metadata URL for the canonical skill page"
+    value: ${{ steps.publish.outputs.entity-url }}
+  docs-url:
+    description: "Canonical HOL docs URL for the registry"
+    value: ${{ steps.publish.outputs.docs-url }}
+  openapi-url:
+    description: "Canonical OpenAPI URL for the registry API"
+    value: ${{ steps.publish.outputs.openapi-url }}
+  install-url-pinned-skill-md:
+    description: "Pinned SKILL.md resolver URL"
+    value: ${{ steps.publish.outputs.install-url-pinned-skill-md }}
+  install-url-latest-skill-md:
+    description: "Latest SKILL.md resolver URL"
+    value: ${{ steps.publish.outputs.install-url-latest-skill-md }}
+  install-url-pinned-manifest:
+    description: "Pinned manifest resolver URL"
+    value: ${{ steps.publish.outputs.install-url-pinned-manifest }}
+  install-url-latest-manifest:
+    description: "Latest manifest resolver URL"
+    value: ${{ steps.publish.outputs.install-url-latest-manifest }}
+  install-metadata-pinned-url:
+    description: "Pinned install metadata URL"
+    value: ${{ steps.publish.outputs.install-metadata-pinned-url }}
+  install-metadata-latest-url:
+    description: "Latest install metadata URL"
+    value: ${{ steps.publish.outputs.install-metadata-latest-url }}
+  badge-markdown:
+    description: "Markdown badge snippet for the resolved version"
+    value: ${{ steps.publish.outputs.badge-markdown }}
+  badge-html:
+    description: "HTML badge snippet for the resolved version"
+    value: ${{ steps.publish.outputs.badge-html }}
+  markdown-link:
+    description: "Markdown link snippet for the canonical skill page"
+    value: ${{ steps.publish.outputs.markdown-link }}
+  html-link:
+    description: "HTML link snippet for the canonical skill page"
+    value: ${{ steps.publish.outputs.html-link }}
+  readme-snippet:
+    description: "README markdown snippet with canonical install links"
+    value: ${{ steps.publish.outputs.readme-snippet }}
+  docs-snippet:
+    description: "Docs snippet with canonical HOL links"
+    value: ${{ steps.publish.outputs.docs-snippet }}
+  citation-snippet:
+    description: "Citation snippet pointing to canonical HOL metadata"
+    value: ${{ steps.publish.outputs.citation-snippet }}
+  release-notes:
+    description: "Release notes markdown snippet with canonical install and badge links"
+    value: ${{ steps.publish.outputs.release-notes }}
+  package-metadata-json:
+    description: "Package metadata JSON block pointing to canonical HOL URLs"
+    value: ${{ steps.publish.outputs.package-metadata-json }}
+  codemeta-json:
+    description: "CodeMeta JSON document for the resolved skill version"
+    value: ${{ steps.publish.outputs.codemeta-json }}
+  attested-kit-json:
+    description: "Full attested distribution kit JSON payload"
+    value: ${{ steps.publish.outputs.attested-kit-json }}
+  next-actions:
+    description: "Post-publish next steps summary"
+    value: ${{ steps.publish.outputs.next-actions }}
   result-json:
     description: "Raw result JSON payload"
     value: ${{ steps.publish.outputs.result-json }}
   annotation-target:
     description: "Where annotations were posted"
     value: ${{ steps.publish.outputs.annotation-target }}
+  indexnow-result:
+    description: "IndexNow submission result when submit-indexnow is enabled"
+    value: ${{ steps.publish.outputs.indexnow-result }}
 runs:
   using: "composite"
   steps:
@@ -104,5 +177,6 @@ runs:
         INPUT_POLL_TIMEOUT_MS: ${{ inputs.poll-timeout-ms }}
         INPUT_POLL_INTERVAL_MS: ${{ inputs.poll-interval-ms }}
         INPUT_ANNOTATE: ${{ inputs.annotate }}
+        INPUT_SUBMIT_INDEXNOW: ${{ inputs.submit-indexnow }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
       run: node "${{ github.action_path }}/entrypoint.mjs"

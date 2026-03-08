@@ -1,21 +1,6 @@
+import { fetchBalance, normalizeBaseUrl, requestJson } from './broker-api.mjs';
 import { maskApiKey, saveCredential } from './credential-store.mjs';
-
-const DEFAULT_BASE_URL = 'https://hol.org/registry/api/v1';
-
-function normalizeBaseUrl(value) {
-  const trimmed = String(value ?? '').trim();
-  if (!trimmed) {
-    return DEFAULT_BASE_URL;
-  }
-  const withoutTrailing = trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
-  if (withoutTrailing.endsWith('/api/v1')) {
-    return withoutTrailing;
-  }
-  if (withoutTrailing.endsWith('/registry')) {
-    return `${withoutTrailing}/api/v1`;
-  }
-  return `${withoutTrailing}/api/v1`;
-}
+import { runFundFlow } from './account-commands.mjs';
 
 function normalizeLedgerNetwork(value) {
   const raw = String(value ?? '').trim().toLowerCase();
@@ -40,43 +25,6 @@ function parsePositiveNumber(value, fallback = 0) {
     throw new Error(`Expected a positive number but received "${String(value)}".`);
   }
   return parsed;
-}
-
-async function summarizeErrorBody(response) {
-  const text = await response.text();
-  if (!text) {
-    return '';
-  }
-  try {
-    const parsed = JSON.parse(text);
-    return JSON.stringify(parsed);
-  } catch {
-    return text;
-  }
-}
-
-async function requestJson(params) {
-  const headers = {
-    'content-type': 'application/json',
-  };
-  if (params.apiKey) {
-    headers['x-api-key'] = params.apiKey;
-  }
-  if (params.accountId) {
-    headers['x-account-id'] = params.accountId;
-  }
-  const response = await fetch(params.url, {
-    method: params.method,
-    headers,
-    body: params.body ? JSON.stringify(params.body) : undefined,
-  });
-  if (!response.ok) {
-    const bodySummary = await summarizeErrorBody(response);
-    throw new Error(
-      `${params.method} ${params.url} failed with ${response.status}${bodySummary ? `: ${bodySummary}` : ''}`,
-    );
-  }
-  return response.json();
 }
 
 async function signWithHederaPrivateKey(message, privateKeyValue) {
@@ -137,25 +85,6 @@ async function createLedgerApiKey(params) {
   return verification;
 }
 
-async function fetchBalance(baseUrl, apiKey, accountId) {
-  const query = new URLSearchParams({ accountId });
-  const response = await requestJson({
-    method: 'GET',
-    url: `${baseUrl}/credits/balance?${query.toString()}`,
-    apiKey,
-    accountId,
-  });
-  const balance = Number(response?.balance ?? 0);
-  return Number.isFinite(balance) ? balance : 0;
-}
-
-async function purchaseCreditsWithHbar(params) {
-  throw new Error(
-    `Automatic CLI funding is currently disabled for security. Requested ${params.hbarAmount} HBAR top-up. ` +
-      'Use the broker billing flow to purchase credits without transmitting a private key.',
-  );
-}
-
 export async function runSetupFlow(options) {
   const baseUrl = normalizeBaseUrl(options['api-base-url']);
   const accountId = String(options['account-id'] ?? '').trim();
@@ -172,6 +101,7 @@ export async function runSetupFlow(options) {
   }
   const expiresInMinutes = parsePositiveNumber(options['expires-in-minutes'], 60);
   const hbarAmount = parsePositiveNumber(options.hbar, 0);
+  const creditsAmount = parsePositiveNumber(options.credits, 0);
 
   const verification = await createLedgerApiKey({
     baseUrl,
@@ -204,25 +134,26 @@ export async function runSetupFlow(options) {
 
   let funding = null;
   let fundingError = '';
-  if (hbarAmount > 0) {
-    if (!hederaPrivateKey) {
-      throw new Error('HBAR top-up requires --hedera-private-key for signed payment.');
-    }
+  if (hbarAmount > 0 || creditsAmount > 0) {
     try {
-      const fundingResult = await purchaseCreditsWithHbar({
-        baseUrl,
-        apiKey,
-        accountId,
-        hbarAmount,
-        hederaPrivateKey,
-        memo: String(options.memo ?? '').trim(),
+      const fundingResult = await runFundFlow({
+        ...options,
+        'api-base-url': baseUrl,
+        'api-key': apiKey,
+        'account-id': accountId,
+        network,
+        hbar: hbarAmount > 0 ? hbarAmount : undefined,
+        credits: creditsAmount > 0 ? creditsAmount : undefined,
       });
-      const currentBalance = await fetchBalance(baseUrl, apiKey, accountId);
       funding = {
-        hbarAmount,
-        credited: fundingResult.credited,
-        balanceAfterFunding: currentBalance,
-        transactionId: fundingResult.transactionId,
+        hbarAmount: fundingResult.intent.hbarAmount,
+        credited:
+          fundingResult.balanceAfter !== null
+            ? Math.max(0, fundingResult.balanceAfter - fundingResult.balanceBefore)
+            : null,
+        balanceAfterFunding: fundingResult.balanceAfter,
+        transactionId: fundingResult.submittedTransactionId,
+        purchaseId: fundingResult.intent.purchaseId ?? null,
       };
     } catch (error) {
       fundingError = error instanceof Error ? error.message : String(error);
