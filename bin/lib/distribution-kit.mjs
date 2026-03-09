@@ -1,6 +1,8 @@
 import { buildCodemetaDocument } from './codemeta.mjs';
 import { normalizeBaseUrl as normalizeApiBaseUrl } from './broker-api.mjs';
 
+export { normalizeApiBaseUrl };
+
 function trimTrailingSlashes(value) {
   return String(value ?? '').trim().replace(/\/+$/u, '');
 }

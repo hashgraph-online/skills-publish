@@ -311,7 +311,8 @@ This action exists to make that publish step deterministic and automated in CI.
 | `api-base-url` | No | `https://hol.org/registry/api/v1` | Broker base URL (`.../registry` or `.../registry/api/v1`). |
 | `account-id` | No | - | Optional Hedera account ID for publish authorization edge cases. |
 | `name` | No | - | Optional skill name override for `skill.json`. |
-| `version` | No | - | Optional version override for `skill.json`. |
+| `version` | No | - | Optional version override for `skill.json`. Non-stable overrides are blocked on production by default. |
+| `allow-nonstable-production-version` | No | `false` | Explicitly permits publishing a non-stable custom version to the production registry. |
 | `stamp-repo-commit` | No | `true` | Stamp `repo` and `commit` metadata into payload. |
 | `poll-timeout-ms` | No | `720000` | Max time to wait for publish job completion. |
 | `poll-interval-ms` | No | `4000` | Interval between publish job status polls. |
