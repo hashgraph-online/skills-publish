@@ -9,11 +9,48 @@ const stderr = (message) => process.stderr.write(`${message}\n`);
 const printJson = (value) => process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 
 class ActionError extends Error {
-  constructor(message) {
+  constructor(message, options = {}) {
     super(message);
     this.name = 'ActionError';
+    this.statusCode =
+      typeof options.statusCode === 'number' && Number.isFinite(options.statusCode)
+        ? options.statusCode
+        : undefined;
+    this.code =
+      typeof options.code === 'string' && options.code.trim().length > 0
+        ? options.code.trim().toUpperCase()
+        : undefined;
   }
 }
+
+const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const RETRYABLE_ERROR_CODES = new Set([
+  'ECONNABORTED',
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ETIMEDOUT',
+  'ERR_NETWORK',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_CONNECT_ERROR',
+]);
+const RETRYABLE_ERROR_MARKERS = [
+  'gateway time-out',
+  'gateway timeout',
+  'timed out',
+  'timeout',
+  'service unavailable',
+  'temporarily unavailable',
+  'too many requests',
+  'rate limit',
+  'network error',
+  'fetch failed',
+  'connection reset',
+];
+const INTEGER_VERSION_PATTERN = /^\d+$/;
+const SEMVER_VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$/;
+const SEMVER_PRERELEASE_PATTERN = /^\d+\.\d+\.\d+-[0-9A-Za-z.-]+(?:\+[0-9A-Za-z.-]+)?$/;
 
 const getEnv = (name, fallback = '') => {
   const value = process.env[name];
@@ -31,6 +68,30 @@ const toBoolean = (value, defaultValue) => {
 const parseNumber = (value, fallback) => {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const isStableRegistryVersion = (value) => {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) {
+    return false;
+  }
+  if (INTEGER_VERSION_PATTERN.test(normalized)) {
+    return true;
+  }
+  if (SEMVER_PRERELEASE_PATTERN.test(normalized)) {
+    return false;
+  }
+  return SEMVER_VERSION_PATTERN.test(normalized);
+};
+
+const isProductionRegistryBase = (value) => {
+  try {
+    const url = new URL(String(value ?? '').trim());
+    const hostname = url.hostname.toLowerCase();
+    return hostname === 'hol.org' || hostname === 'registry.hashgraphonline.com';
+  } catch {
+    return false;
+  }
 };
 
 const guessMimeType = (filePath) => {
@@ -110,6 +171,44 @@ const summarizeErrorBody = async (response) => {
   }
 };
 
+const sleep = (delayMs) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+
+const extractErrorCode = (error) => {
+  if (!error || typeof error !== 'object') {
+    return '';
+  }
+  if (typeof error.code === 'string') {
+    return error.code.trim().toUpperCase();
+  }
+  if (error.cause && typeof error.cause === 'object' && typeof error.cause.code === 'string') {
+    return error.cause.code.trim().toUpperCase();
+  }
+  return '';
+};
+
+const isRetryableRequestError = (error) => {
+  if (error instanceof ActionError && typeof error.statusCode === 'number') {
+    if (RETRYABLE_STATUS_CODES.has(error.statusCode)) {
+      return true;
+    }
+    if (error.statusCode >= 400 && error.statusCode < 500) {
+      return false;
+    }
+  }
+
+  const code = extractErrorCode(error);
+  if (code && RETRYABLE_ERROR_CODES.has(code)) {
+    return true;
+  }
+
+  const message =
+    error instanceof Error ? error.message.toLowerCase() : String(error ?? '').toLowerCase();
+  return RETRYABLE_ERROR_MARKERS.some((marker) => message.includes(marker));
+};
+
 const requestJson = async (params) => {
   const {
     method,
@@ -118,27 +217,61 @@ const requestJson = async (params) => {
     body,
     signal,
   } = params;
-  const response = await fetch(url, {
-    method,
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-    signal,
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      signal,
+    });
+  } catch (error) {
+    throw new ActionError(
+      `${method} ${url} failed: ${error instanceof Error ? error.message : String(error)}`,
+      {
+        code: extractErrorCode(error),
+      },
+    );
+  }
   if (!response.ok) {
     const bodySummary = await summarizeErrorBody(response);
     throw new ActionError(
       `${method} ${url} failed with ${response.status}${bodySummary ? `: ${bodySummary}` : ''}`,
+      {
+        statusCode: response.status,
+      },
     );
   }
   return response.json();
 };
 
+const requestJsonWithRetry = async (params) => {
+  const attempts = Number.isFinite(params.attempts) && params.attempts > 0 ? Math.floor(params.attempts) : 1;
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await requestJson(params);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts || !isRetryableRequestError(error)) {
+        throw error;
+      }
+      const delayMs = Math.min(10_000, 1_000 * attempt);
+      stderr(
+        `Transient request failure on ${params.method} ${params.url}; retrying in ${delayMs}ms (retry ${attempt}/${attempts - 1}).`,
+      );
+      await sleep(delayMs);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new ActionError('Request failed');
+};
+
 const findExistingSkillVersion = async (params) => {
   const { apiBaseUrl, apiKey, name, version } = params;
-  const response = await requestJson({
+  const response = await requestJsonWithRetry({
     method: 'GET',
     url: buildApiUrl(apiBaseUrl, '/skills', {
       name,
@@ -146,6 +279,7 @@ const findExistingSkillVersion = async (params) => {
       limit: 20,
     }),
     apiKey,
+    attempts: 3,
   });
 
   const items = Array.isArray(response?.items) ? response.items : [];
@@ -396,6 +530,10 @@ const run = async () => {
   const skillDirInput = getEnv('INPUT_SKILL_DIR');
   const overrideName = getEnv('INPUT_NAME');
   const overrideVersion = getEnv('INPUT_VERSION');
+  const allowNonstableProductionVersion = toBoolean(
+    getEnv('INPUT_ALLOW_NONSTABLE_PRODUCTION_VERSION'),
+    false,
+  );
   const stampRepoCommit = toBoolean(getEnv('INPUT_STAMP_REPO_COMMIT'), true);
   const pollTimeoutMs = parseNumber(getEnv('INPUT_POLL_TIMEOUT_MS'), 720000);
   const pollIntervalMs = parseNumber(getEnv('INPUT_POLL_INTERVAL_MS'), 4000);
@@ -494,6 +632,21 @@ const run = async () => {
   if (!skillDescription) {
     throw new ActionError('skill.json must include description.');
   }
+  const nonstableVersion = !isStableRegistryVersion(skillVersion);
+  if (
+    nonstableVersion &&
+    isProductionRegistryBase(apiBaseUrl) &&
+    !allowNonstableProductionVersion
+  ) {
+    throw new ActionError(
+      `Refusing to publish ${skillName}@${skillVersion} to the production registry because it is not a stable release version. Use staging instead, or set allow-nonstable-production-version=true if this is intentional.`,
+    );
+  }
+  if (nonstableVersion) {
+    stderr(
+      `Publishing ${skillName}@${skillVersion} as a custom prerelease version. The registry will not use this release as the public stable default unless it is explicitly recommended.`,
+    );
+  }
 
   if (mode === 'publish') {
     const existingVersion = await findExistingSkillVersion({
@@ -576,10 +729,11 @@ const run = async () => {
   let maxTotalSizeBytes = 0;
   let allowedMimeTypes = null;
   if (mode === 'publish' || mode === 'quote') {
-    const config = await requestJson({
+    const config = await requestJsonWithRetry({
       method: 'GET',
       url: buildApiUrl(apiBaseUrl, '/skills/config'),
       apiKey,
+      attempts: 3,
     });
     maxFiles = Number(config?.maxFiles ?? 0);
     maxTotalSizeBytes = Number(config?.maxTotalSizeBytes ?? 0);
@@ -662,7 +816,7 @@ const run = async () => {
     return;
   }
 
-  const quote = await requestJson({
+  const quote = await requestJsonWithRetry({
     method: 'POST',
     url: buildApiUrl(apiBaseUrl, '/skills/quote'),
     apiKey,
@@ -670,6 +824,7 @@ const run = async () => {
       files,
       ...(accountId ? { accountId } : {}),
     },
+    attempts: 3,
   });
 
   const quoteId = String(quote?.quoteId ?? '').trim();
@@ -741,10 +896,11 @@ const run = async () => {
   let lastStatus = '';
   let completedJob = null;
   while (Date.now() - startedAt < pollTimeoutMs) {
-    const job = await requestJson({
+    const job = await requestJsonWithRetry({
       method: 'GET',
       url: buildApiUrl(apiBaseUrl, `/skills/jobs/${encodeURIComponent(jobId)}`, accountId ? { accountId } : null),
       apiKey,
+      attempts: 3,
     });
     const status = String(job?.status ?? '').trim();
     if (status && status !== lastStatus) {

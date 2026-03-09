@@ -24,6 +24,10 @@ inputs:
   version:
     description: "Optional version override for skill.json"
     required: false
+  allow-nonstable-production-version:
+    description: "When true, permits publishing a non-stable custom version to the production registry"
+    required: false
+    default: "false"
   stamp-repo-commit:
     description: "When true, writes repo and commit fields into the publish payload"
     required: false
@@ -173,6 +177,7 @@ runs:
         INPUT_SKILL_DIR: ${{ inputs.skill-dir }}
         INPUT_NAME: ${{ inputs.name }}
         INPUT_VERSION: ${{ inputs.version }}
+        INPUT_ALLOW_NONSTABLE_PRODUCTION_VERSION: ${{ inputs.allow-nonstable-production-version }}
         INPUT_STAMP_REPO_COMMIT: ${{ inputs.stamp-repo-commit }}
         INPUT_POLL_TIMEOUT_MS: ${{ inputs.poll-timeout-ms }}
         INPUT_POLL_INTERVAL_MS: ${{ inputs.poll-interval-ms }}

@@ -140,6 +140,13 @@ function buildManualWorkflow(skillDir, annotate) {
 on:
   workflow_dispatch:
     inputs:
+      publish_target:
+        type: choice
+        required: true
+        default: staging
+        options:
+          - staging
+          - production
       version:
         type: string
         required: false
@@ -153,9 +160,19 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve broker API URL
+        id: target
+        shell: bash
+        run: |
+          if [[ "\${{ inputs.publish_target }}" == "staging" ]]; then
+            echo "api_base_url=https://registry-staging.hol.org/registry/api/v1" >> "$GITHUB_OUTPUT"
+          else
+            echo "api_base_url=https://hol.org/registry/api/v1" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish skill package
         uses: hashgraph-online/skill-publish@v1
         with:
+          api-base-url: \${{ steps.target.outputs.api_base_url }}
           api-key: \${{ secrets.RB_API_KEY }}
           skill-dir: ${skillDir}
           version: \${{ inputs.version }}
